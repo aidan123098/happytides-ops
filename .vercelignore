@@ -1,0 +1,9 @@
+outputs
+work
+.DS_Store
+.npm-cache
+node_modules
+.next
+tsconfig.tsbuildinfo
+.env
+.happytides-local-store.json

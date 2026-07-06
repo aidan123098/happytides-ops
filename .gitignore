@@ -1,0 +1,15 @@
+node_modules
+.next
+.env
+.env*.local
+.happytides-local-store.json
+dist
+coverage
+*.log
+prisma/dev.db
+.vercel
+.DS_Store
+.npm-cache
+outputs
+work
+tsconfig.tsbuildinfo
