@@ -1,7 +1,9 @@
-import { AlertTriangle, Boxes, CircleDollarSign, PackageCheck, Timer } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, Boxes, CircleDollarSign, ClipboardList, History, PackageCheck, Timer } from "lucide-react";
 import { DataTable, Td } from "@/components/data-table";
 import { InventoryWorkbench } from "@/components/inventory-workbench";
 import { MetricCard } from "@/components/metric-card";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getLocalStore } from "@/lib/local-store";
@@ -22,15 +24,37 @@ export default async function InventoryPage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <p className="text-sm font-medium text-blue-700">Inventory control</p>
-          <h1 className="mt-1 text-3xl font-semibold text-slate-950">Batch inventory</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-500">
-            Track quantity on hand, reserved inventory, sold units, lot numbers, expiration dates, supplier, storage, COA, and adjustment history.
-          </p>
-        </div>
-      </section>
+      <PageHeader
+        eyebrow="Inventory control"
+        title="Batch inventory cockpit"
+        description="Lot-level stock control for on-hand quantity, reserves, expiration exposure, supplier records, COAs, receiving, and adjustment history."
+        icon={Boxes}
+        kicker={`${formatNumber(products.filter((product) => product.active).length)} tracked SKUs`}
+        stats={[
+          { label: "On hand", value: formatNumber(totalOnHand), detail: `${formatNumber(reserved)} units currently reserved`, icon: PackageCheck, tone: "green" },
+          { label: "Low stock", value: formatNumber(lowStock.length), detail: "Batches at or below threshold", icon: AlertTriangle, tone: lowStock.length > 0 ? "amber" : "green" },
+          { label: "Expiring soon", value: formatNumber(expiringSoon.length), detail: "Lots inside the 90-day review window", icon: Timer, tone: expiringSoon.length > 0 ? "amber" : "green" },
+          { label: "Stock value", value: formatCurrency(inventoryValue, 0), detail: "Estimated on-hand cost basis", icon: CircleDollarSign, tone: "blue" }
+        ]}
+        actions={
+          <>
+            <Link
+              href="#inventory-workbench"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <ClipboardList size={16} />
+              Manage batches
+            </Link>
+            <Link
+              href="#inventory-audit"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <History size={16} />
+              Movement audit
+            </Link>
+          </>
+        }
+      />
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
         <MetricCard featured title="On hand" value={formatNumber(totalOnHand)} detail={`${formatNumber(reserved)} reserved units`} icon={PackageCheck} tone="green" />
@@ -40,9 +64,11 @@ export default async function InventoryPage() {
         <MetricCard title="Active products" value={formatNumber(products.filter((product) => product.active).length)} detail="Catalog items tracked" icon={Boxes} tone="slate" />
       </section>
 
-      <InventoryWorkbench initialBatches={inventoryBatches} products={products} orders={orders} />
+      <div id="inventory-workbench">
+        <InventoryWorkbench initialBatches={inventoryBatches} products={products} orders={orders} />
+      </div>
 
-      <Card>
+      <Card id="inventory-audit">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Boxes size={17} className="text-blue-700" />

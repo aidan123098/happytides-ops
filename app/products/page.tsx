@@ -1,6 +1,8 @@
-import { BadgeCheck, Boxes, CircleDollarSign, FileWarning, PackageCheck } from "lucide-react";
+import Link from "next/link";
+import { BadgeCheck, Boxes, CircleDollarSign, FileWarning, PackageCheck, PencilRuler, Plus } from "lucide-react";
 import { ProductsWorkbench } from "@/components/products-workbench";
 import { MetricCard } from "@/components/metric-card";
+import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getLocalStore } from "@/lib/local-store";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
@@ -22,15 +24,37 @@ export default async function ProductsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <p className="text-sm font-medium text-blue-700">Catalog</p>
-          <h1 className="mt-1 text-3xl font-semibold text-slate-950">Products</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-500">
-            Manage premium research-use product details, pricing, margins, COAs, disclaimers, imagery, and active selling status.
-          </p>
-        </div>
-      </section>
+      <PageHeader
+        eyebrow="Catalog"
+        title="Product command shelf"
+        description="A complete product control surface for pricing, margin awareness, COA readiness, catalog status, imagery, disclaimers, and sales momentum."
+        icon={PackageCheck}
+        kicker={`${formatNumber(products.length)} catalog records`}
+        stats={[
+          { label: "Active SKUs", value: formatNumber(activeProducts.length), detail: "Visible in normal selling flows", icon: PackageCheck, tone: "green" },
+          { label: "Week revenue", value: formatCurrency(weeklyRevenueCents, 0), detail: `${formatNumber(weeklyUnits)} units sold this week`, icon: CircleDollarSign, tone: "blue" },
+          { label: "COA gaps", value: formatNumber(missingCoas), detail: "Records missing linked documents", icon: FileWarning, tone: missingCoas > 0 ? "amber" : "green" },
+          { label: "Avg margin", value: formatPercent(averageMargin), detail: "Active catalog average margin", icon: BadgeCheck, tone: averageMargin >= 60 ? "green" : "amber" }
+        ]}
+        actions={
+          <>
+            <Link
+              href="#products-workbench"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <PencilRuler size={16} />
+              Manage catalog
+            </Link>
+            <Link
+              href="#products-workbench"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <Plus size={16} />
+              Add SKU
+            </Link>
+          </>
+        }
+      />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard title="Active SKUs" value={formatNumber(activeProducts.length)} detail={`${formatNumber(products.length)} total catalog records`} icon={PackageCheck} tone="green" />
@@ -91,7 +115,9 @@ export default async function ProductsPage() {
         </Card>
       </section>
 
-      <ProductsWorkbench products={products} />
+      <div id="products-workbench">
+        <ProductsWorkbench products={products} />
+      </div>
 
       <Card>
         <CardHeader>

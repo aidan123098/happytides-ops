@@ -1,4 +1,4 @@
-import { getOfflineStore } from "@/lib/offline-store";
+import { getOfflineStore, isDatabaseUnavailable } from "@/lib/offline-store";
 import { prisma } from "@/lib/prisma";
 import { getOperationalStore } from "@/lib/services/operational-data";
 
@@ -8,6 +8,11 @@ const globalForLocalStore = globalThis as unknown as {
 };
 
 export async function getLocalStore() {
+  if (!process.env.DATABASE_URL) {
+    globalForLocalStore.happytidesDatabaseUnavailable = true;
+    return getOfflineStore();
+  }
+
   if (globalForLocalStore.happytidesDatabaseUnavailable) return getOfflineStore();
 
   try {
@@ -15,7 +20,9 @@ export async function getLocalStore() {
     return await getOperationalStore();
   } catch (error) {
     globalForLocalStore.happytidesDatabaseUnavailable = true;
-    if (!globalForLocalStore.happytidesWarnedAboutDatabaseFallback) {
+    const expectedDemoFallback = !process.env.DATABASE_URL && isDatabaseUnavailable(error);
+
+    if (!expectedDemoFallback && !globalForLocalStore.happytidesWarnedAboutDatabaseFallback) {
       globalForLocalStore.happytidesWarnedAboutDatabaseFallback = true;
       console.warn("Database unavailable; using local seed data for read-only pages.", error);
     }

@@ -1,6 +1,8 @@
-import { Crown, DollarSign, MessageCircle, Repeat2, Store, UsersRound } from "lucide-react";
+import Link from "next/link";
+import { Crown, DollarSign, MessageCircle, Repeat2, Store, UserPlus, UsersRound } from "lucide-react";
 import { CustomersWorkbench } from "@/components/customers-workbench";
 import { MetricCard } from "@/components/metric-card";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getLocalStore } from "@/lib/local-store";
@@ -28,15 +30,28 @@ export default async function CustomersPage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <p className="text-sm font-medium text-blue-700">CRM</p>
-          <h1 className="mt-1 text-3xl font-semibold text-slate-950">Customers</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-500">
-            Privacy-conscious customer records for receipts, consent, customer type, spend, repeat purchase signals, and notes.
-          </p>
-        </div>
-      </section>
+      <PageHeader
+        eyebrow="CRM"
+        title="Customer relationship desk"
+        description="Customer records for receipts, consent, wholesale status, purchase value, repeat behavior, segmentation, notes, and follow-up focus."
+        icon={UsersRound}
+        kicker={`${formatNumber(realCustomers.length)} real records`}
+        stats={[
+          { label: "Customer value", value: formatCurrency(totalSpendCents, 0), detail: "Lifetime spend across CRM records", icon: DollarSign, tone: "green" },
+          { label: "Repeat buyers", value: formatNumber(repeatCustomers), detail: "Customers with more than one order", icon: Repeat2, tone: repeatCustomers > 0 ? "blue" : "slate" },
+          { label: "Consent ready", value: formatNumber(consentReady), detail: "SMS or email allowed", icon: MessageCircle, tone: consentReady > 0 ? "blue" : "amber" },
+          { label: "VIP segment", value: formatNumber(vipCustomers), detail: "Highest-value relationship group", icon: Crown, tone: vipCustomers > 0 ? "green" : "slate" }
+        ]}
+        actions={
+          <Link
+            href="#customers-workbench"
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <UserPlus size={16} />
+            Manage customers
+          </Link>
+        }
+      />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard title="Customers" value={formatNumber(realCustomers.length)} detail={`${formatNumber(repeatCustomers)} repeat buyers`} icon={UsersRound} tone="blue" />
@@ -100,7 +115,9 @@ export default async function CustomersPage() {
         </Card>
       </section>
 
-      <CustomersWorkbench customers={customers} />
+      <div id="customers-workbench">
+        <CustomersWorkbench customers={customers} />
+      </div>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import type { LucideIcon } from "lucide-react";
 import { ProductMixChart, RevenueChart } from "@/components/charts";
 import { DataTable, Td } from "@/components/data-table";
 import { MetricCard } from "@/components/metric-card";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAnalyticsSummaryFromStore } from "@/lib/live-metrics";
@@ -85,31 +86,37 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-lg border border-slate-200 bg-white/85 p-5 shadow-panel sm:p-6">
-        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-          <div>
-            <p className="text-sm font-semibold text-blue-700">Analytics</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Operating intelligence</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              A practical readout for sales momentum, product velocity, customer follow-up, location performance, and fulfillment risk.
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="text-xs font-semibold text-slate-500">Today</div>
-              <div className="mt-1 text-sm font-semibold text-slate-950">{formatCurrency(summary.revenueTodayCents, 0)}</div>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="text-xs font-semibold text-slate-500">Week</div>
-              <div className="mt-1 text-sm font-semibold text-slate-950">{formatCurrency(summary.revenueWeekCents, 0)}</div>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="text-xs font-semibold text-slate-500">Month</div>
-              <div className="mt-1 text-sm font-semibold text-slate-950">{formatCurrency(summary.revenueMonthCents, 0)}</div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <PageHeader
+        eyebrow="Analytics"
+        title="Operating intelligence"
+        description="A practical readout for sales momentum, product velocity, customer follow-up, location performance, and fulfillment risk."
+        icon={TrendingUp}
+        kicker={`${formatNumber(summary.ordersWeek)} paid orders this week`}
+        stats={[
+          { label: "Today", value: formatCurrency(summary.revenueTodayCents, 0), detail: `${formatNumber(summary.ordersToday)} orders / ${formatNumber(summary.unitsToday)} units`, icon: ShoppingBag, tone: "green" },
+          { label: "Week", value: formatCurrency(summary.revenueWeekCents, 0), detail: `${formatNumber(summary.unitsWeek)} units sold in 7 days`, icon: TrendingUp, tone: "blue" },
+          { label: "Inventory risk", value: formatNumber(summary.lowStock.length), detail: "Low-stock batches needing review", icon: AlertTriangle, tone: summary.lowStock.length > 0 ? "amber" : "green" },
+          { label: "Follow-up", value: formatNumber(followUps.length), detail: "Customers with purchase history", icon: Users, tone: followUps.length > 0 ? "blue" : "slate" }
+        ]}
+        actions={
+          <>
+            <Link
+              href="/orders/new?returnTo=%2Fanalytics"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <ClipboardList size={16} />
+              New order
+            </Link>
+            <Link
+              href="/inventory"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <Boxes size={16} />
+              Inventory risk
+            </Link>
+          </>
+        }
+      />
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard featured title="Revenue today" value={formatCurrency(summary.revenueTodayCents)} detail={`${formatNumber(summary.ordersToday)} orders / ${formatNumber(summary.unitsToday)} units`} icon={TrendingUp} tone="green" />

@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { BadgeDollarSign, ClipboardList, PackageCheck, Plus, ReceiptText, Truck } from "lucide-react";
+import { BadgeDollarSign, BarChart3, ClipboardList, PackageCheck, Plus, ReceiptText, Truck } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
 import { OrdersWorkbench } from "@/components/orders-workbench";
+import { PageHeader } from "@/components/page-header";
 import { getLocalStore } from "@/lib/local-store";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
@@ -24,15 +25,20 @@ export default async function OrdersPage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <p className="text-sm font-medium text-blue-700">Sales processing</p>
-          <h1 className="mt-1 text-3xl font-semibold text-slate-950">Orders</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-500">
-            Process in-person orders, record payment method, and keep inventory accurate.
-          </p>
-        </div>
-        <div className="flex gap-2">
+      <PageHeader
+        eyebrow="Sales processing"
+        title="Orders command"
+        description="A fast sales desk for manual orders, payment tracking, customer attribution, affiliate credit, and inventory allocation."
+        icon={ClipboardList}
+        kicker={`${formatNumber(visibleOrders.length)} active orders`}
+        stats={[
+          { label: "Today revenue", value: formatCurrency(revenueToday, 0), detail: `${formatNumber(todayOrders.length)} paid orders booked`, icon: BadgeDollarSign, tone: "green" },
+          { label: "Units moved", value: formatNumber(unitsToday), detail: "Inventory allocated from batches today", icon: PackageCheck, tone: "blue" },
+          { label: "Payment queue", value: formatNumber(pendingPayments), detail: "Orders still waiting on collection", icon: ReceiptText, tone: pendingPayments > 0 ? "amber" : "green" },
+          { label: "Fulfillment holds", value: formatNumber(unfulfilled), detail: "Orders not marked fulfilled", icon: Truck, tone: unfulfilled > 0 ? "amber" : "slate" }
+        ]}
+        actions={
+          <>
           <Link
             href="/orders/new?returnTo=%2Forders"
             className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
@@ -40,8 +46,16 @@ export default async function OrdersPage() {
             <Plus size={16} />
             New order
           </Link>
-        </div>
-      </section>
+            <Link
+              href="/analytics"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <BarChart3 size={16} />
+              Order analytics
+            </Link>
+          </>
+        }
+      />
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
         <MetricCard featured title="Revenue today" value={formatCurrency(revenueToday)} detail={`${formatNumber(todayOrders.length)} paid orders`} icon={BadgeDollarSign} tone="green" />

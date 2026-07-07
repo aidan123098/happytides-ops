@@ -1,5 +1,6 @@
 import { Database, GitBranch, KeyRound, Link2, LockKeyhole, ServerCog, ShieldCheck, UsersRound } from "lucide-react";
 import { DataTable, Td } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
 import { SquareSyncButton } from "@/components/square-sync-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +36,10 @@ function configured(value: unknown) {
 
 function daysFromSeconds(seconds: number) {
   return `${Math.round(seconds / 60 / 60 / 24)} days`;
+}
+
+function headerTone(tone: Tone) {
+  return tone === "red" ? "rose" : tone;
 }
 
 async function databaseStatus(): Promise<StatusItem> {
@@ -164,16 +169,20 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 border-b border-slate-200/80 pb-6 md:flex-row md:items-end">
-        <div>
-          <p className="text-sm font-semibold text-blue-700">Administration</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Settings</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-500">
-            Operational controls for access, data source, Square connection, deployment status, and security posture.
-          </p>
-        </div>
-        <SquareSyncButton />
-      </section>
+      <PageHeader
+        eyebrow="Administration"
+        title="Settings control room"
+        description="Operational controls for access, data source, Square connection, deployment status, rollback readiness, and security posture."
+        icon={ShieldCheck}
+        kicker={hostedDemo ? "Demo fallback active" : "Staff workspace"}
+        stats={[
+          { label: "Database", value: db.value, detail: db.detail, icon: Database, tone: headerTone(db.tone) },
+          { label: "Authentication", value: hostedDemo ? "Hosted demo" : "Staff login", detail: hostedDemo ? "Temporary owner login enabled" : "Role permissions enforced server-side", icon: KeyRound, tone: hostedDemo ? "amber" : "green" },
+          { label: "Square token", value: configured(square.accessToken) ? "Configured" : "Missing", detail: `${square.environment} environment`, icon: Link2, tone: configured(square.accessToken) ? "green" : "amber" },
+          { label: "Deployment", value: commitRef, detail: `Commit ${commitSha} / rollback tag available`, icon: GitBranch, tone: commitRef === "main" ? "green" : "blue" }
+        ]}
+        actions={<SquareSyncButton />}
+      />
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
