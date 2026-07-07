@@ -5,6 +5,14 @@ import { getLocalStore } from "@/lib/local-store";
 import { cancelOrder, createOrder, updateOrder } from "@/lib/services/operations";
 import { orderInputSchema, orderUpdateSchema } from "@/lib/validation";
 
+function validationError(error: unknown) {
+  const issues = typeof error === "object" && error !== null && "issues" in error ? (error.issues as Array<{ path: Array<string | number>; message: string }>) : [];
+  const firstIssue = issues[0];
+  const path = firstIssue?.path.length ? `${firstIssue.path.join(".")}: ` : "";
+  const detail = firstIssue ? `${path}${firstIssue.message}` : "Check the required fields and try again.";
+  return NextResponse.json({ error: detail }, { status: 400 });
+}
+
 async function domainOrder(id: string) {
   return (await getLocalStore()).orders.find((order) => order.id === id);
 }
@@ -17,7 +25,13 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const actor = await requirePermission("orders:create");
-  const payload = orderInputSchema.parse(await request.json());
+  const parsed = orderInputSchema.safeParse(await request.json());
+
+  if (!parsed.success) {
+    return validationError(parsed.error);
+  }
+
+  const payload = parsed.data;
 
   try {
     const order = await createOrder(payload, actor, request);
@@ -33,7 +47,13 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   const actor = await requirePermission("orders:manage");
-  const payload = orderUpdateSchema.parse(await request.json());
+  const parsed = orderUpdateSchema.safeParse(await request.json());
+
+  if (!parsed.success) {
+    return validationError(parsed.error);
+  }
+
+  const payload = parsed.data;
 
   try {
     const order = await updateOrder(payload.orderId, payload, actor, request);

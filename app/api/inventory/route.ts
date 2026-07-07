@@ -11,7 +11,9 @@ import { inventoryAdjustmentSchema, inventoryBatchInputSchema } from "@/lib/vali
 
 function validationError(error: unknown) {
   const issues = typeof error === "object" && error !== null && "issues" in error ? (error.issues as Array<{ path: Array<string | number>; message: string }>) : [];
-  const detail = issues[0] ? `${issues[0].path.join(".")}: ${issues[0].message}` : "Check the required fields and try again.";
+  const firstIssue = issues[0];
+  const path = firstIssue?.path.length ? `${firstIssue.path.join(".")}: ` : "";
+  const detail = firstIssue ? `${path}${firstIssue.message}` : "Check the required fields and try again.";
   return NextResponse.json({ error: detail }, { status: 400 });
 }
 
@@ -101,7 +103,13 @@ export async function POST(request: Request) {
     }
   }
 
-  const payload = inventoryAdjustmentSchema.parse(body);
+  const parsed = inventoryAdjustmentSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return validationError(parsed.error);
+  }
+
+  const payload = parsed.data;
 
   try {
     const batch = await adjustInventory(payload, actor, request);
