@@ -8,13 +8,11 @@ import {
   ClipboardCheck,
   ClipboardList,
   Flame,
-  MapPinned,
   PackageCheck,
   Radar,
   Repeat,
   ShoppingBag,
   Sparkles,
-  Timer,
   TrendingUp,
   Truck,
   Users,
@@ -37,12 +35,6 @@ type PriorityTone = "blue" | "green" | "amber" | "slate";
 function parseDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function daysUntil(value: string) {
-  const date = parseDate(value);
-  if (!date) return null;
-  return Math.ceil((date.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
 function latestOrders(orders: Order[]) {
@@ -69,19 +61,15 @@ function inventoryHealth(batches: InventoryBatch[]) {
   const totalOnHand = batches.reduce((sum, batch) => sum + batch.quantityOnHand, 0);
   const reserved = batches.reduce((sum, batch) => sum + batch.quantityReserved, 0);
   const lowStock = batches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold);
-  const expiringSoon = batches.filter((batch) => {
-    const days = daysUntil(batch.expirationDate);
-    return days !== null && days >= 0 && days <= 90;
-  });
   const blocked = batches.filter((batch) => ["quarantined", "damaged", "expired"].includes(batch.status));
 
-  return { totalOnHand, reserved, lowStock, expiringSoon, blocked };
+  return { totalOnHand, reserved, lowStock, blocked };
 }
 
 export default async function DashboardPage() {
   const store = await getLocalStore();
   const dashboard = getDashboardData(store);
-  const { locationSales, metrics, products, revenueSeries } = dashboard;
+  const { metrics, products, revenueSeries } = dashboard;
   const orders = latestOrders(dashboard.recentOrders);
   const customers = getDerivedCustomers(store);
   const health = inventoryHealth(store.inventoryBatches);
@@ -89,22 +77,13 @@ export default async function DashboardPage() {
   const mix = paymentMix(orders).slice(0, 4);
   const topCustomers = customers.filter((customer) => customer.orderCount > 0).slice(0, 5);
   const hotProducts = [...products].sort((left, right) => right.unitsSoldWeek - left.unitsSoldWeek).slice(0, 6);
-  const topLocationRevenue = locationSales[0]?.revenue ? locationSales[0].revenue * 100 : 0;
-  const totalLocationRevenue = locationSales.reduce((sum, location) => sum + location.revenue * 100, 0);
   const priorityItems: Array<{ label: string; detail: string; href: string; tone: PriorityTone; icon: typeof AlertTriangle }> = [
     {
       label: `${formatNumber(health.lowStock.length)} stock alerts`,
-      detail: health.lowStock.length > 0 ? "Reorder or adjust count before demand catches you." : "No low-stock batches are blocking sales.",
+      detail: health.lowStock.length > 0 ? "Reorder or adjust count before demand catches you." : "No low-stock counts are blocking sales.",
       href: "/inventory",
       tone: health.lowStock.length > 0 ? "amber" : "green",
       icon: AlertTriangle
-    },
-    {
-      label: `${formatNumber(health.expiringSoon.length)} expiring soon`,
-      detail: "Review lots inside the next 90 days.",
-      href: "/inventory",
-      tone: health.expiringSoon.length > 0 ? "amber" : "green",
-      icon: Timer
     },
     {
       label: `${formatNumber(metrics.orderCountToday)} orders today`,
@@ -125,7 +104,7 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-5">
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-[#0d1117] text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
-        <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="grid gap-0 xl:grid-cols-2">
           <div className="p-5 sm:p-6 lg:p-7">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
               <span className="inline-flex h-7 items-center gap-2 rounded-md border border-emerald-300/20 bg-emerald-300/10 px-2.5 text-emerald-200">
@@ -193,7 +172,7 @@ export default async function DashboardPage() {
         <MetricCard featured title="Revenue today" value={formatCurrency(metrics.revenueToday)} detail={`${formatNumber(metrics.orderCountToday)} completed orders`} icon={BadgeDollarSign} tone="green" />
         <MetricCard title="Orders today" value={formatNumber(metrics.orderCountToday)} detail={`${formatNumber(metrics.unitsSoldToday)} units allocated`} icon={ClipboardList} tone="blue" />
         <MetricCard title="Average order" value={formatCurrency(metrics.aov)} detail="Paid order average today" icon={ShoppingBag} tone="slate" />
-        <MetricCard title="Inventory risk" value={formatNumber(health.lowStock.length)} detail={`${formatNumber(health.expiringSoon.length)} expiring soon`} icon={AlertTriangle} tone={health.lowStock.length > 0 ? "amber" : "green"} />
+        <MetricCard title="Inventory risk" value={formatNumber(health.lowStock.length)} detail={`${formatNumber(health.reserved)} units reserved`} icon={AlertTriangle} tone={health.lowStock.length > 0 ? "amber" : "green"} />
         <MetricCard title="Revenue month" value={formatCurrency(metrics.revenueMonth)} detail="Month-to-date booked sales" icon={Wallet} tone="green" />
         <MetricCard title="Top today" value={metrics.topToday?.unitsSoldToday ? metrics.topToday.name : "No sales yet"} detail={`${formatNumber(metrics.topToday?.unitsSoldToday ?? 0)} units sold today`} icon={PackageCheck} tone="slate" />
         <MetricCard title="Top week" value={metrics.topWeek?.unitsSoldWeek ? metrics.topWeek.name : "No sales yet"} detail={`${formatNumber(metrics.topWeek?.unitsSoldWeek ?? 0)} units in 7 days`} icon={Flame} tone="blue" />
@@ -225,9 +204,9 @@ export default async function DashboardPage() {
           <CardContent className="space-y-2">
             {[
               ["Create sale", "/orders/new?returnTo=%2F", "Record an in-person order and allocate stock", "primary"],
-              ["Check reorder list", "/inventory", "Review coverage, expiring lots, and manual counts", "secondary"],
-              ["Follow up customers", "/customers", "Find VIP, returning, and new buyer records", "secondary"],
-              ["Open analytics", "/analytics", "Inspect product, location, and demand signals", "secondary"]
+              ["Check reorder list", "/inventory", "Review coverage, reserved stock, and manual counts", "secondary"],
+              ["Follow up customers", "/customers", "Find returning and new buyer records", "secondary"],
+              ["Open analytics", "/analytics", "Inspect product, customer, and demand signals", "secondary"]
             ].map(([label, href, detail, style]) => (
               <Link
                 key={label}
@@ -257,10 +236,9 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {[
-              ["On hand", formatNumber(health.totalOnHand), "Available batch quantity", "green"],
+              ["On hand", formatNumber(health.totalOnHand), "Available stock quantity", "green"],
               ["Reserved", formatNumber(health.reserved), "Committed but not sold", "blue"],
-              ["Blocked", formatNumber(health.blocked.length), "Quarantine, damage, or expired", "amber"],
-              ["Expiring", formatNumber(health.expiringSoon.length), "Lots inside 90 days", "amber"]
+              ["Blocked", formatNumber(health.blocked.length), "Quarantine or damage", "amber"]
             ].map(([label, value, detail, tone]) => (
               <div key={label} className="rounded-md border border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -307,8 +285,8 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <div>
-              <CardTitle>Revenue mix</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Payments and locations driving cash.</p>
+              <CardTitle>Payment mix</CardTitle>
+              <p className="mt-1 text-sm text-slate-500">Payment methods driving cash.</p>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -324,16 +302,6 @@ export default async function DashboardPage() {
                 </div>
               ))}
             </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                <MapPinned size={15} />
-                Top location
-              </div>
-              <div className="mt-2 text-lg font-semibold text-slate-950">{locationSales[0]?.name ?? "No sales yet"}</div>
-              <div className="mt-1 text-xs text-slate-500">
-                {topLocationRevenue > 0 ? `${formatCurrency(topLocationRevenue)} of ${formatCurrency(totalLocationRevenue)}` : "Location performance appears after paid orders."}
-              </div>
-            </div>
           </CardContent>
         </Card>
       </section>
@@ -347,15 +315,37 @@ export default async function DashboardPage() {
             </div>
             <Badge tone="slate">{formatNumber(paidOrders.length)} paid orders</Badge>
           </CardHeader>
-          <CardContent>
-            <DataTable columns={["Order", "Customer", "Items", "Payment", "Location", "Total"]}>
+          <CardContent className="space-y-3">
+            <div className="space-y-3 lg:hidden">
+              {orders.slice(0, 8).map((order) => (
+                <div key={order.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-950">{order.orderNumber}</div>
+                      <div className="mt-1 truncate text-sm text-slate-500">{order.customerName}</div>
+                    </div>
+                    <Badge tone={order.paymentStatus === "paid" ? "green" : "amber"}>{order.paymentMethod}</Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Total</div>
+                      <div className="font-semibold text-slate-950">{formatCurrency(order.totalCents)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-sm leading-6 text-slate-600">
+                    {order.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <DataTable className="hidden lg:block" columns={["Order", "Customer", "Items", "Payment", "Total"]}>
               {orders.slice(0, 8).map((order) => (
                 <tr key={order.id}>
                   <Td className="font-medium text-slate-950">{order.orderNumber}</Td>
                   <Td>{order.customerName}</Td>
                   <Td>{order.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")}</Td>
                   <Td><Badge tone={order.paymentStatus === "paid" ? "green" : "amber"}>{order.paymentMethod}</Badge></Td>
-                  <Td>{order.location}</Td>
                   <Td className="font-medium text-slate-950">{formatCurrency(order.totalCents)}</Td>
                 </tr>
               ))}
@@ -398,7 +388,7 @@ export default async function DashboardPage() {
         {[
           { title: "Fulfillment stance", detail: health.lowStock.length > 0 ? "Inventory needs active attention before the next rush." : "Stock coverage looks workable from current thresholds.", icon: Truck, tone: health.lowStock.length > 0 ? "amber" : "green", href: "/inventory" },
           { title: "Sales stance", detail: metrics.orderCountToday > 0 ? "Orders are flowing and totals are updating across the system." : "Start with a manual order when the first sale comes in.", icon: ShoppingBag, tone: metrics.orderCountToday > 0 ? "green" : "slate", href: "/orders/new?returnTo=%2F" },
-          { title: "Data confidence", detail: "Dashboard numbers are derived from paid orders, live catalog, and inventory batches.", icon: CheckCircle2, tone: "blue", href: "/analytics" }
+          { title: "Data confidence", detail: "Dashboard numbers are derived from paid orders, live catalog, and inventory counts.", icon: CheckCircle2, tone: "blue", href: "/analytics" }
         ].map((item) => {
           const Icon = item.icon;
           return (

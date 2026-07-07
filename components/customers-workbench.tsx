@@ -39,8 +39,8 @@ const emptyForm: CustomerForm = {
 };
 
 const customerTypes: Customer["customerType"][] = ["consumer", "wholesaler"];
-const customerSources: Customer["source"][] = ["walk-in", "referral", "event", "Instagram", "website", "other"];
-const customerStatuses: Customer["status"][] = ["new", "returning", "VIP", "inactive"];
+const customerSources: Customer["source"][] = ["walk-in", "referral", "Instagram", "website", "other"];
+const customerStatuses: Customer["status"][] = ["new", "returning", "inactive"];
 
 function isRealCustomer(customer: Customer) {
   return customer.id !== "cust_placeholder" && (customer.firstName !== "N/A" || customer.email !== "N/A" || customer.phone !== "N/A");
@@ -57,12 +57,10 @@ function sourceLabel(source: Customer["source"] | undefined) {
 }
 
 function statusLabel(status: Customer["status"] | undefined) {
-  if (status === "VIP") return "VIP";
   return status ? status[0].toUpperCase() + status.slice(1) : "New";
 }
 
 function statusTone(status: Customer["status"] | undefined): "blue" | "green" | "amber" | "slate" {
-  if (status === "VIP") return "green";
   if (status === "returning") return "blue";
   if (status === "inactive") return "slate";
   return "amber";
@@ -256,7 +254,7 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
             </label>
             <label className="md:col-span-2 xl:col-span-3">
               <span className="text-xs font-semibold uppercase text-slate-500">Tags</span>
-              <Input className="mt-1 bg-white" value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="VIP, wholesale, follow-up" />
+              <Input className="mt-1 bg-white" value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="wholesale, follow-up, local" />
             </label>
             <label className="md:col-span-2 xl:col-span-3">
               <span className="text-xs font-semibold uppercase text-slate-500">Notes</span>

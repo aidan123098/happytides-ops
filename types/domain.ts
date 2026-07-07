@@ -96,7 +96,7 @@ export type Order = {
   squarePaymentId?: string;
   squareOrderId?: string;
   paymentStatus: "paid" | "pending" | "refunded" | "canceled";
-  fulfillmentStatus: "fulfilled" | "unfulfilled" | "canceled";
+  fulfillmentStatus: "unfulfilled" | "packed" | "shipped" | "delivered" | "fulfilled" | "canceled";
   createdAt: string;
   notes?: string;
 };

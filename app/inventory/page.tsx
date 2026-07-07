@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Boxes, CircleDollarSign, ClipboardList, History, PackageCheck, Timer } from "lucide-react";
+import { AlertTriangle, Boxes, CircleDollarSign, ClipboardList, History, PackageCheck } from "lucide-react";
 import { DataTable, Td } from "@/components/data-table";
 import { InventoryWorkbench } from "@/components/inventory-workbench";
 import { MetricCard } from "@/components/metric-card";
@@ -29,24 +29,19 @@ export default async function InventoryPage() {
   const totalOnHand = inventoryBatches.reduce((sum, batch) => sum + batch.quantityOnHand, 0);
   const reserved = inventoryBatches.reduce((sum, batch) => sum + batch.quantityReserved, 0);
   const lowStock = inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold);
-  const expiringSoon = inventoryBatches.filter((batch) => {
-    const expires = new Date(batch.expirationDate);
-    return !Number.isNaN(expires.getTime()) && expires.getTime() <= Date.now() + 1000 * 60 * 60 * 24 * 90;
-  });
   const inventoryValue = inventoryBatches.reduce((sum, batch) => sum + batch.quantityOnHand * batch.costPerVialCents, 0);
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Inventory control"
-        title="Batch inventory cockpit"
-        description="Lot-level stock control for on-hand quantity, reserves, expiration exposure, supplier records, COAs, receiving, and adjustment history."
+        title="Inventory cockpit"
+        description="Stock control for on-hand quantity, reserved units, sold units, supplier records, receiving, and adjustment history."
         icon={Boxes}
         kicker={`${formatNumber(products.filter((product) => product.active).length)} tracked SKUs`}
         stats={[
           { label: "On hand", value: formatNumber(totalOnHand), detail: `${formatNumber(reserved)} units currently reserved`, icon: PackageCheck, tone: "green" },
-          { label: "Low stock", value: formatNumber(lowStock.length), detail: "Batches at or below threshold", icon: AlertTriangle, tone: lowStock.length > 0 ? "amber" : "green" },
-          { label: "Expiring soon", value: formatNumber(expiringSoon.length), detail: "Lots inside the 90-day review window", icon: Timer, tone: expiringSoon.length > 0 ? "amber" : "green" },
+          { label: "Low stock", value: formatNumber(lowStock.length), detail: "Stock counts at or below threshold", icon: AlertTriangle, tone: lowStock.length > 0 ? "amber" : "green" },
           { label: "Stock value", value: formatCurrency(inventoryValue, 0), detail: "Estimated on-hand cost basis", icon: CircleDollarSign, tone: "blue" }
         ]}
         actions={
@@ -56,7 +51,7 @@ export default async function InventoryPage() {
               className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <ClipboardList size={16} />
-              Manage batches
+              Manage stock
             </Link>
             <Link
               href="#inventory-audit"
@@ -69,10 +64,9 @@ export default async function InventoryPage() {
         }
       />
 
-      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard featured title="On hand" value={formatNumber(totalOnHand)} detail={`${formatNumber(reserved)} reserved units`} icon={PackageCheck} tone="green" />
-        <MetricCard title="Low stock" value={formatNumber(lowStock.length)} detail="Batches at threshold" icon={AlertTriangle} tone={lowStock.length > 0 ? "amber" : "green"} />
-        <MetricCard title="Expiring soon" value={formatNumber(expiringSoon.length)} detail="Lots inside 90 days" icon={Timer} tone={expiringSoon.length > 0 ? "amber" : "green"} />
+        <MetricCard title="Low stock" value={formatNumber(lowStock.length)} detail="Stock counts at threshold" icon={AlertTriangle} tone={lowStock.length > 0 ? "amber" : "green"} />
         <MetricCard title="Inventory value" value={formatCurrency(inventoryValue, 0)} detail="Estimated on-hand cost" icon={CircleDollarSign} tone="blue" />
         <MetricCard title="Active products" value={formatNumber(products.filter((product) => product.active).length)} detail="Catalog items tracked" icon={Boxes} tone="slate" />
       </section>

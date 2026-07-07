@@ -1,4 +1,4 @@
-import type { CustomerSource, CustomerStatus, FulfillmentStatus, InventoryStatus, PaymentMethod, PaymentStatus } from "@prisma/client";
+import type { CustomerSource, CustomerStatus, FulfillmentStatus, InventoryStatus, OrderStatus, PaymentMethod, PaymentStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { Affiliate, Customer, InventoryBatch, Order, Product } from "@/types/domain";
 
@@ -81,9 +81,17 @@ const fulfillmentStatusMap: Partial<Record<FulfillmentStatus, Order["fulfillment
   PARTIALLY_ALLOCATED: "unfulfilled",
   ALLOCATED: "unfulfilled",
   PICKING: "unfulfilled",
-  PACKED: "unfulfilled",
+  PACKED: "packed",
   PARTIALLY_FULFILLED: "unfulfilled",
-  FULFILLED: "fulfilled",
+  FULFILLED: "delivered",
+  CANCELED: "canceled"
+};
+
+const orderStageMap: Partial<Record<OrderStatus, Order["fulfillmentStatus"]>> = {
+  READY_TO_SHIP: "packed",
+  SHIPPED: "shipped",
+  DELIVERED: "delivered",
+  COMPLETED: "delivered",
   CANCELED: "canceled"
 };
 
@@ -271,7 +279,7 @@ export async function getOrders() {
       squarePaymentId: payment?.squarePaymentId ?? undefined,
       squareOrderId: order.squareOrderId ?? undefined,
       paymentStatus: paymentStatusMap[order.paymentStatus] ?? "pending",
-      fulfillmentStatus: fulfillmentStatusMap[order.fulfillmentStatus] ?? "unfulfilled",
+      fulfillmentStatus: orderStageMap[order.status] ?? fulfillmentStatusMap[order.fulfillmentStatus] ?? "unfulfilled",
       createdAt: order.createdAt.toISOString(),
       notes: order.notes ?? undefined
     };

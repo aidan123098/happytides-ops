@@ -15,6 +15,8 @@ type OrderPayload = {
   locationId?: string;
   paymentMethod: "Processor" | "Cash" | "Zelle" | "Venmo" | "ACH" | "Crypto" | "Other";
   squarePaymentId?: string;
+  fulfillmentStatus?: "unfulfilled" | "packed" | "shipped" | "delivered";
+  createdAt?: string;
   items: Array<{
     productId: string;
     inventoryBatchId: string;
@@ -24,6 +26,36 @@ type OrderPayload = {
   }>;
   notes?: string;
 };
+
+function fulfillmentStatusForStage(stage: OrderPayload["fulfillmentStatus"]) {
+  if (stage === "packed" || stage === "shipped") return FulfillmentStatus.PACKED;
+  if (stage === "delivered") return FulfillmentStatus.FULFILLED;
+  return FulfillmentStatus.UNFULFILLED;
+}
+
+function orderStatusForStage(stage: OrderPayload["fulfillmentStatus"]) {
+  if (stage === "packed") return OrderStatus.READY_TO_SHIP;
+  if (stage === "shipped") return OrderStatus.SHIPPED;
+  if (stage === "delivered") return OrderStatus.DELIVERED;
+  return OrderStatus.PAID;
+}
+
+function isDelivered(stage: OrderPayload["fulfillmentStatus"]) {
+  return stage === "delivered";
+}
+
+function parsedCreatedAt(value?: string) {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function stageFromExisting(order: { fulfillmentStatus: FulfillmentStatus; status: OrderStatus }): OrderPayload["fulfillmentStatus"] {
+  if (order.status === OrderStatus.SHIPPED) return "shipped";
+  if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.COMPLETED || order.fulfillmentStatus === FulfillmentStatus.FULFILLED) return "delivered";
+  if (order.fulfillmentStatus === FulfillmentStatus.PACKED || order.status === OrderStatus.READY_TO_SHIP || order.status === OrderStatus.PACKING) return "packed";
+  return "unfulfilled";
+}
 
 const paymentMethodMap: Record<OrderPayload["paymentMethod"], PaymentMethod> = {
   Processor: PaymentMethod.SQUARE_CARD,
@@ -68,7 +100,34 @@ function aggregateByBatch(items: OrderPayload["items"]) {
   return aggregate;
 }
 
-async function adjustBatchForFulfillment(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
+async function reserveBatchForOrder(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
+  const batch = await tx.inventoryBatch.findUniqueOrThrow({ where: { id: batchId } });
+  const quantityBefore = batch.quantityOnHand - batch.quantityReserved;
+
+  await tx.inventoryBatch.update({
+    where: { id: batchId },
+    data: {
+      quantityReserved: { increment: quantity }
+    }
+  });
+
+  await tx.inventoryMovement.create({
+    data: {
+      batchId,
+      type: InventoryMovementType.ORDER_RESERVATION,
+      quantityDelta: 0,
+      quantityBefore,
+      quantityAfter: quantityBefore - quantity,
+      reason,
+      orderItemId,
+      adjustedById: actor.id,
+      referenceType: "ORDER",
+      referenceId: reason
+    }
+  });
+}
+
+async function sellReservedBatchForOrder(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
   const batch = await tx.inventoryBatch.findUniqueOrThrow({ where: { id: batchId } });
   const quantityBefore = batch.quantityOnHand;
   const quantityAfter = quantityBefore - quantity;
@@ -81,6 +140,7 @@ async function adjustBatchForFulfillment(tx: Tx, batchId: string, quantity: numb
     where: { id: batchId },
     data: {
       quantityOnHand: quantityAfter,
+      quantityReserved: { decrement: Math.min(batch.quantityReserved, quantity) },
       quantitySold: { increment: quantity }
     }
   });
@@ -101,7 +161,35 @@ async function adjustBatchForFulfillment(tx: Tx, batchId: string, quantity: numb
   });
 }
 
-async function restoreBatchForCancellation(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
+async function releaseReservedBatchForOrder(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
+  const batch = await tx.inventoryBatch.findUniqueOrThrow({ where: { id: batchId } });
+  const quantityBefore = batch.quantityOnHand - batch.quantityReserved;
+  const release = Math.min(batch.quantityReserved, quantity);
+
+  await tx.inventoryBatch.update({
+    where: { id: batchId },
+    data: {
+      quantityReserved: { decrement: release }
+    }
+  });
+
+  await tx.inventoryMovement.create({
+    data: {
+      batchId,
+      type: InventoryMovementType.ORDER_CANCELLATION,
+      quantityDelta: 0,
+      quantityBefore,
+      quantityAfter: quantityBefore + release,
+      reason,
+      orderItemId,
+      adjustedById: actor.id,
+      referenceType: "ORDER",
+      referenceId: reason
+    }
+  });
+}
+
+async function restoreSoldBatchForOrder(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
   const batch = await tx.inventoryBatch.findUniqueOrThrow({ where: { id: batchId } });
   const quantityBefore = batch.quantityOnHand;
   const quantityAfter = quantityBefore + quantity;
@@ -128,6 +216,28 @@ async function restoreBatchForCancellation(tx: Tx, batchId: string, quantity: nu
       referenceId: reason
     }
   });
+}
+
+async function releaseOrderInventory(tx: Tx, items: Array<{ inventoryBatchId: string | null; quantity: number; id?: string }>, stage: OrderPayload["fulfillmentStatus"], actor: SessionUser, reason: string) {
+  for (const item of items) {
+    if (!item.inventoryBatchId) continue;
+    if (isDelivered(stage)) {
+      await restoreSoldBatchForOrder(tx, item.inventoryBatchId, item.quantity, actor, reason, item.id);
+    } else {
+      await releaseReservedBatchForOrder(tx, item.inventoryBatchId, item.quantity, actor, reason, item.id);
+    }
+  }
+}
+
+async function applyOrderInventory(tx: Tx, items: Array<{ inventoryBatchId: string | null; quantity: number; id?: string }>, stage: OrderPayload["fulfillmentStatus"], actor: SessionUser, reason: string) {
+  for (const item of items) {
+    if (!item.inventoryBatchId) continue;
+    if (isDelivered(stage)) {
+      await sellReservedBatchForOrder(tx, item.inventoryBatchId, item.quantity, actor, reason, item.id);
+    } else {
+      await reserveBatchForOrder(tx, item.inventoryBatchId, item.quantity, actor, reason, item.id);
+    }
+  }
 }
 
 async function validateInventory(tx: Tx, items: OrderPayload["items"]) {
@@ -179,7 +289,7 @@ async function recalculateCustomerStats(tx: Tx, customerId: string) {
       firstPurchaseAt: orders[0]?.createdAt,
       lastPurchaseAt: orders[orders.length - 1]?.createdAt,
       favoriteProductId: favorite?.productId,
-      status: orders.length > 2 ? CustomerStatus.VIP : orders.length > 1 ? CustomerStatus.RETURNING : CustomerStatus.NEW
+      status: orders.length > 1 ? CustomerStatus.RETURNING : CustomerStatus.NEW
     }
   });
 }
@@ -225,6 +335,8 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
     const discountCents = payload.items.reduce((sum, item) => sum + item.discountCents, 0);
     const totalCents = subtotalCents - discountCents;
     const orderNumber = `HT-${Date.now().toString().slice(-6)}`;
+    const fulfillmentStage = payload.fulfillmentStatus ?? "unfulfilled";
+    const createdAt = parsedCreatedAt(payload.createdAt);
     const order = await tx.order.create({
       data: {
         orderNumber,
@@ -235,11 +347,12 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
         taxCents: 0,
         totalCents,
         paymentStatus: PaymentStatus.PAID,
-        fulfillmentStatus: FulfillmentStatus.FULFILLED,
-        status: OrderStatus.COMPLETED,
+        fulfillmentStatus: fulfillmentStatusForStage(fulfillmentStage),
+        status: orderStatusForStage(fulfillmentStage),
         orderSource: payload.locationId ?? "Manual entry",
         affiliateId: payload.affiliateId,
         notes: payload.notes,
+        createdAt,
         items: {
           create: payload.items.map((item) => ({
             productId: item.productId,
@@ -264,11 +377,7 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
       include: { items: true }
     });
 
-    for (const item of order.items) {
-      if (item.inventoryBatchId) {
-        await adjustBatchForFulfillment(tx, item.inventoryBatchId, item.quantity, actor, order.orderNumber, item.id);
-      }
-    }
+    await applyOrderInventory(tx, order.items, fulfillmentStage, actor, order.orderNumber);
 
     await recalculateCustomerStats(tx, payload.customerId);
     await recalculateAffiliateMetrics(tx, payload.affiliateId);
@@ -286,17 +395,15 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
     });
     if (!existing || existing.archivedAt) throw new Error("Order not found.");
 
-    for (const item of existing.items) {
-      if (item.inventoryBatchId) {
-        await restoreBatchForCancellation(tx, item.inventoryBatchId, item.quantity, actor, existing.orderNumber, item.id);
-      }
-    }
+    await releaseOrderInventory(tx, existing.items, stageFromExisting(existing), actor, existing.orderNumber);
 
     await validateInventory(tx, payload.items);
 
     const subtotalCents = payload.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
     const discountCents = payload.items.reduce((sum, item) => sum + item.discountCents, 0);
     const totalCents = subtotalCents - discountCents;
+    const fulfillmentStage = payload.fulfillmentStatus ?? stageFromExisting(existing);
+    const createdAt = parsedCreatedAt(payload.createdAt);
 
     await tx.orderItem.deleteMany({ where: { orderId } });
     const updated = await tx.order.update({
@@ -307,8 +414,11 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
         discountCents,
         totalCents,
         orderSource: payload.locationId ?? existing.orderSource,
+        fulfillmentStatus: fulfillmentStatusForStage(fulfillmentStage),
+        status: orderStatusForStage(fulfillmentStage),
         affiliateId: payload.affiliateId,
         notes: payload.notes,
+        createdAt,
         items: {
           create: payload.items.map((item) => ({
             productId: item.productId,
@@ -334,11 +444,7 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
       include: { items: true }
     });
 
-    for (const item of updated.items) {
-      if (item.inventoryBatchId) {
-        await adjustBatchForFulfillment(tx, item.inventoryBatchId, item.quantity, actor, updated.orderNumber, item.id);
-      }
-    }
+    await applyOrderInventory(tx, updated.items, fulfillmentStage, actor, updated.orderNumber);
 
     await recalculateCustomerStats(tx, existing.customerId);
     if (existing.customerId !== payload.customerId) await recalculateCustomerStats(tx, payload.customerId);
@@ -358,11 +464,7 @@ export async function cancelOrder(orderId: string, actor: SessionUser, request?:
     });
     if (!existing || existing.archivedAt) throw new Error("Order not found.");
 
-    for (const item of existing.items) {
-      if (item.inventoryBatchId) {
-        await restoreBatchForCancellation(tx, item.inventoryBatchId, item.quantity, actor, existing.orderNumber, item.id);
-      }
-    }
+    await releaseOrderInventory(tx, existing.items, stageFromExisting(existing), actor, existing.orderNumber);
 
     const canceled = await tx.order.update({
       where: { id: orderId },

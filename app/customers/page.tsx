@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Crown, DollarSign, MessageCircle, Repeat2, Store, UserPlus, UsersRound } from "lucide-react";
+import { DollarSign, MessageCircle, Repeat2, Store, UserPlus, UsersRound } from "lucide-react";
 import { CustomersWorkbench } from "@/components/customers-workbench";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
@@ -19,12 +19,11 @@ export default async function CustomersPage() {
   const realCustomers = customers.filter(isRealCustomer);
   const totalSpendCents = realCustomers.reduce((sum, customer) => sum + customer.totalSpendCents, 0);
   const repeatCustomers = realCustomers.filter((customer) => customer.orderCount > 1).length;
-  const vipCustomers = realCustomers.filter((customer) => customer.status === "VIP").length;
   const consentReady = realCustomers.filter((customer) => customer.smsConsent || customer.emailConsent).length;
   const wholesaleCustomers = realCustomers.filter((customer) => customer.customerType === "wholesaler").length;
   const topCustomers = [...realCustomers].sort((left, right) => right.totalSpendCents - left.totalSpendCents).slice(0, 4);
   const followUpQueue = [...realCustomers]
-    .filter((customer) => customer.orderCount > 0 || customer.status === "VIP" || (!customer.smsConsent && !customer.emailConsent))
+    .filter((customer) => customer.orderCount > 0 || (!customer.smsConsent && !customer.emailConsent))
     .sort((left, right) => Number(!right.smsConsent && !right.emailConsent) - Number(!left.smsConsent && !left.emailConsent) || right.totalSpendCents - left.totalSpendCents)
     .slice(0, 4);
 
@@ -40,7 +39,7 @@ export default async function CustomersPage() {
           { label: "Customer value", value: formatCurrency(totalSpendCents, 0), detail: "Lifetime spend across CRM records", icon: DollarSign, tone: "green" },
           { label: "Repeat buyers", value: formatNumber(repeatCustomers), detail: "Customers with more than one order", icon: Repeat2, tone: repeatCustomers > 0 ? "blue" : "slate" },
           { label: "Consent ready", value: formatNumber(consentReady), detail: "SMS or email allowed", icon: MessageCircle, tone: consentReady > 0 ? "blue" : "amber" },
-          { label: "VIP segment", value: formatNumber(vipCustomers), detail: "Highest-value relationship group", icon: Crown, tone: vipCustomers > 0 ? "green" : "slate" }
+          { label: "Wholesale", value: formatNumber(wholesaleCustomers), detail: "Wholesale customer records", icon: Store, tone: wholesaleCustomers > 0 ? "amber" : "slate" }
         ]}
         actions={
           <Link
@@ -53,10 +52,9 @@ export default async function CustomersPage() {
         }
       />
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard title="Customers" value={formatNumber(realCustomers.length)} detail={`${formatNumber(repeatCustomers)} repeat buyers`} icon={UsersRound} tone="blue" />
         <MetricCard title="Customer Revenue" value={formatCurrency(totalSpendCents)} detail="Lifetime spend in CRM records" icon={DollarSign} tone="green" featured />
-        <MetricCard title="VIP Customers" value={formatNumber(vipCustomers)} detail="Highest-value customer segment" icon={Crown} tone={vipCustomers > 0 ? "green" : "slate"} />
         <MetricCard title="Consent Ready" value={formatNumber(consentReady)} detail="SMS or email allowed" icon={MessageCircle} tone={consentReady > 0 ? "blue" : "amber"} />
         <MetricCard title="Wholesale" value={formatNumber(wholesaleCustomers)} detail="Wholesale customer records" icon={Store} tone="amber" />
       </section>
@@ -65,7 +63,7 @@ export default async function CustomersPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Crown size={17} className="text-blue-700" />
+              <DollarSign size={17} className="text-blue-700" />
               <CardTitle>Top customer value</CardTitle>
             </div>
           </CardHeader>
@@ -104,7 +102,7 @@ export default async function CustomersPage() {
                     <div className="text-xs text-slate-500">Last purchase {customer.lastPurchaseAt}</div>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Badge tone={customer.status === "VIP" ? "green" : customer.status === "returning" ? "blue" : "slate"}>{customer.status}</Badge>
+                    <Badge tone={customer.status === "returning" ? "blue" : "slate"}>{customer.status}</Badge>
                     {!customer.smsConsent && !customer.emailConsent ? <Badge tone="amber">No consent</Badge> : null}
                   </div>
                 </div>

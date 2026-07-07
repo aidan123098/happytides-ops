@@ -30,7 +30,7 @@ const navItems = [
   { href: "/orders", label: "Orders", detail: "Sales workflow", icon: ClipboardList },
   { href: "/customers", label: "Customers", detail: "CRM records", icon: Users },
   { href: "/products", label: "Products", detail: "Catalog and pricing", icon: Package },
-  { href: "/inventory", label: "Inventory", detail: "Stock and lots", icon: Boxes },
+  { href: "/inventory", label: "Inventory", detail: "Stock counts", icon: Boxes },
   { href: "/affiliates", label: "Affiliates", detail: "Referral ledger", icon: Handshake },
   { href: "/analytics", label: "Analytics", detail: "Business intelligence", icon: BarChart3 },
   { href: "/settings", label: "Settings", detail: "Controls", icon: Settings }
@@ -38,7 +38,7 @@ const navItems = [
 
 const commandItems = [
   ...navItems.map((item) => ({ ...item, type: "Open" })),
-  { href: "/orders/new?returnTo=%2Forders", label: "New Order", detail: "Create an in-person sale", icon: Plus, type: "Action" },
+  { href: "/orders/new?returnTo=%2Forders", label: "New Order", detail: "Create a sale", icon: Plus, type: "Action" },
   { href: "/inventory", label: "Adjust Inventory", detail: "Record a stock change", icon: Boxes, type: "Action" },
   { href: "/customers", label: "Add Customer", detail: "Create or edit CRM record", icon: Users, type: "Action" }
 ];

@@ -20,7 +20,7 @@ type InventoryWorkbenchProps = {
 const reorderTargetDays = 45;
 const reorderWatchDays = 30;
 const reorderUrgentDays = 14;
-const inventoryStatuses: InventoryBatch["status"][] = ["available", "reserved", "sold", "expired", "quarantined", "damaged"];
+const inventoryStatuses: InventoryBatch["status"][] = ["available", "reserved", "sold", "quarantined", "damaged"];
 type ReorderSignal = "Need sales data" | "Order now" | "Watch" | "Healthy";
 
 type ReceiveBatchForm = {
@@ -48,7 +48,7 @@ function batchTone(batch: InventoryBatch) {
     return batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold ? "amber" : "green";
   }
 
-  return batch.status === "quarantined" || batch.status === "damaged" || batch.status === "expired" ? "amber" : "slate";
+  return batch.status === "quarantined" || batch.status === "damaged" ? "amber" : "slate";
 }
 
 function signalTone(signal: ReorderSignal) {
@@ -67,7 +67,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
     reorderThreshold: "10",
     batchNumber: "",
     lotNumber: "",
-    expirationDate: "",
+    expirationDate: "2099-12-31",
     supplier: "",
     costPerVial: "",
     storageRequirements: "Refrigerated",
@@ -83,10 +83,12 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
   const [adjustDelta, setAdjustDelta] = useState("0");
   const [adjustStatus, setAdjustStatus] = useState<InventoryBatch["status"]>(initialBatches[0]?.status ?? "available");
   const [adjustReason, setAdjustReason] = useState("");
+  const [showReceive, setShowReceive] = useState(false);
+  const [showAdjust, setShowAdjust] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const selectedBatch = batches.find((batch) => batch.id === adjustBatchId);
   const suppliers = [...new Set(batches.map((batch) => batch.supplier))];
-  const receiveReady = receiveForm.productId && receiveForm.batchNumber.trim() && receiveForm.lotNumber.trim() && receiveForm.expirationDate && receiveForm.supplier.trim() && receiveForm.storageRequirements.trim() && receiveForm.costPerVial.trim() && Number.parseInt(receiveForm.quantityOnHand, 10) >= 0 && dollarsToCents(receiveForm.costPerVial) >= 0 && receiveForm.reason.trim().length >= 4;
+  const receiveReady = receiveForm.productId && receiveForm.batchNumber.trim() && receiveForm.lotNumber.trim() && receiveForm.supplier.trim() && receiveForm.storageRequirements.trim() && receiveForm.costPerVial.trim() && Number.parseInt(receiveForm.quantityOnHand, 10) >= 0 && dollarsToCents(receiveForm.costPerVial) >= 0 && receiveForm.reason.trim().length >= 4;
   const filteredBatches = batches.filter((batch) => {
     const product = products.find((item) => item.id === batch.productId);
     const matchesSearch = [batch.productName, product?.sku, batch.batchNumber, batch.lotNumber, batch.supplier].join(" ").toLowerCase().includes(search.toLowerCase());
@@ -165,7 +167,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
     event.preventDefault();
 
     if (!receiveReady) {
-      setMessage("Complete product, batch, lot, expiration, supplier, quantity, cost, storage, and reason before receiving stock.");
+      setMessage("Complete product, stock ID, supplier, quantity, cost, storage, and reason before receiving stock.");
       return;
     }
 
@@ -196,7 +198,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(payload.error || "Batch could not be received.");
+        throw new Error(payload.error || "Stock could not be received.");
       }
 
       setBatches((current) => [payload.batch, ...current]);
@@ -207,16 +209,16 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
         quantityOnHand: "0",
         batchNumber: "",
         lotNumber: "",
-        expirationDate: "",
+        expirationDate: "2099-12-31",
         supplier: "",
         costPerVial: "",
         coaDocumentUrl: "",
         reason: "Initial receipt"
       }));
-      setMessage(`${payload.batch.productName} batch ${payload.batch.batchNumber} received with ${payload.batch.quantityOnHand} units.`);
+      setMessage(`${payload.batch.productName} stock received with ${payload.batch.quantityOnHand} units.`);
       router.refresh();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "Batch could not be received.");
+      setMessage(caught instanceof Error ? caught.message : "Stock could not be received.");
     } finally {
       setReceiving(false);
     }
@@ -227,11 +229,14 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
       <Card>
         <CardHeader>
           <div>
-            <CardTitle>Receive new batch</CardTitle>
-            <p className="mt-1 text-sm text-slate-500">Add newly received stock with lot, expiration, supplier, COA, storage, and initial quantity.</p>
+            <CardTitle>Receive stock</CardTitle>
+            <p className="mt-1 text-sm text-slate-500">Collapsed by default. Open only when adding new stock.</p>
           </div>
+          <Button type="button" variant="secondary" onClick={() => setShowReceive((open) => !open)}>
+            {showReceive ? "Close" : "Open"}
+          </Button>
         </CardHeader>
-        <CardContent>
+        {showReceive ? <CardContent>
           <form onSubmit={receiveBatch} className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <label className="xl:col-span-2">
               <span className="text-xs font-semibold uppercase text-slate-500">Product</span>
@@ -240,16 +245,12 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
               </select>
             </label>
             <label>
-              <span className="text-xs font-semibold uppercase text-slate-500">Batch</span>
+              <span className="text-xs font-semibold uppercase text-slate-500">Stock ID</span>
               <Input className="mt-1 bg-white" value={receiveForm.batchNumber} onChange={(event) => setReceiveForm({ ...receiveForm, batchNumber: event.target.value })} />
             </label>
             <label>
-              <span className="text-xs font-semibold uppercase text-slate-500">Lot</span>
+              <span className="text-xs font-semibold uppercase text-slate-500">Internal code</span>
               <Input className="mt-1 bg-white" value={receiveForm.lotNumber} onChange={(event) => setReceiveForm({ ...receiveForm, lotNumber: event.target.value })} />
-            </label>
-            <label>
-              <span className="text-xs font-semibold uppercase text-slate-500">Expires</span>
-              <Input className="mt-1 bg-white" type="date" value={receiveForm.expirationDate} onChange={(event) => setReceiveForm({ ...receiveForm, expirationDate: event.target.value })} />
             </label>
             <label>
               <span className="text-xs font-semibold uppercase text-slate-500">Quantity</span>
@@ -288,34 +289,33 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             <div className="flex items-end xl:col-span-3">
               <Button type="submit" disabled={receiving || !receiveReady}>
                 <PackagePlus size={16} />
-                {receiving ? "Receiving" : "Receive batch"}
+                {receiving ? "Receiving" : "Receive stock"}
               </Button>
             </div>
           </form>
-        </CardContent>
+        </CardContent> : null}
       </Card>
 
       <Card>
         <CardHeader>
           <div>
             <CardTitle>Manual inventory adjustment</CardTitle>
-            <p className="mt-1 text-sm text-slate-500">Adjust local stock with a reason. Use + to add stock and - to remove stock.</p>
+            <p className="mt-1 text-sm text-slate-500">Collapsed by default. Open for cycle counts, corrections, and status changes.</p>
           </div>
+          <Button type="button" variant="secondary" onClick={() => setShowAdjust((open) => !open)}>
+            {showAdjust ? "Close" : "Open"}
+          </Button>
         </CardHeader>
-        <CardContent className="space-y-3">
+        {showAdjust ? <CardContent className="space-y-3">
           {selectedBatch ? (
             <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm md:grid-cols-4">
               <div>
-                <div className="text-xs font-semibold uppercase text-slate-500">Selected batch</div>
+                <div className="text-xs font-semibold uppercase text-slate-500">Selected stock</div>
                 <div className="mt-1 font-mono text-slate-950">{selectedBatch.batchNumber} / {selectedBatch.lotNumber}</div>
               </div>
               <div>
                 <div className="text-xs font-semibold uppercase text-slate-500">Available</div>
                 <div className="mt-1 font-semibold text-slate-950">{Math.max(selectedBatch.quantityOnHand - selectedBatch.quantityReserved, 0)}</div>
-              </div>
-              <div>
-                <div className="text-xs font-semibold uppercase text-slate-500">Expiration</div>
-                <div className="mt-1 text-slate-700">{selectedBatch.expirationDate}</div>
               </div>
               <div>
                 <div className="text-xs font-semibold uppercase text-slate-500">Storage</div>
@@ -356,13 +356,13 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
           <Button onClick={applyAdjustment}>Save change</Button>
           {message ? <div className="text-sm text-slate-600 md:col-span-5">{message}</div> : null}
           </div>
-        </CardContent>
+        </CardContent> : null}
       </Card>
 
       <Card>
         <CardHeader>
           <div>
-            <CardTitle>Inventory batches</CardTitle>
+            <CardTitle>Inventory stock</CardTitle>
             <p className="mt-1 text-sm text-slate-500">Search and filter stock by SKU, product, supplier, and status.</p>
           </div>
           <Badge tone="amber">{batches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold).length} warnings</Badge>
@@ -371,7 +371,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
           <div className="grid gap-3 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3 md:grid-cols-[minmax(180px,1fr)_180px_180px]">
             <label>
               <span className="text-xs font-semibold uppercase text-slate-500">Search</span>
-              <Input className="mt-1 bg-white" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="SKU, product, batch, supplier" />
+              <Input className="mt-1 bg-white" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="SKU, product, stock, supplier" />
             </label>
             <label>
               <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
@@ -380,7 +380,6 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
                 <option value="available">Available</option>
                 <option value="reserved">Reserved</option>
                 <option value="sold">Sold</option>
-                <option value="expired">Expired</option>
                 <option value="quarantined">Quarantined</option>
                 <option value="damaged">Damaged</option>
               </select>
@@ -405,7 +404,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-950">{batch.productName}</div>
-                      <div className="mt-1 font-mono text-xs text-slate-500">{product?.sku ?? "N/A"} / {batch.batchNumber} / {batch.lotNumber}</div>
+                      <div className="mt-1 font-mono text-xs text-slate-500">{product?.sku ?? "N/A"} / {batch.batchNumber}</div>
                     </div>
                     <Badge tone={batchTone(batch)}>{lowStock ? "Low stock" : batch.status}</Badge>
                   </div>
@@ -437,10 +436,6 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
                   </div>
                   <div className="mt-3 grid gap-2 text-sm text-slate-600">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-slate-500">Expires</span>
-                      <span className="font-medium text-slate-950">{batch.expirationDate}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
                       <span className="text-slate-500">Supplier</span>
                       <span className="text-right font-medium text-slate-950">{batch.supplier}</span>
                     </div>
@@ -454,7 +449,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             })}
           </div>
 
-          <DataTable className="hidden lg:block" columns={["Product", "Batch / Lot", "On hand", "Reserved", "Sold", "Reorder", "Expiration", "Supplier", "Cost", "Status"]}>
+          <DataTable className="hidden lg:block" columns={["Product", "Stock ID", "On hand", "Reserved", "Sold", "Reorder", "Supplier", "Cost", "Status"]}>
             {filteredBatches.map((batch) => {
               const lowStock = batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold;
               return (
@@ -465,7 +460,6 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
                   <Td>{batch.quantityReserved}</Td>
                   <Td>{batch.quantitySold}</Td>
                   <Td>{batch.reorderThreshold ?? "N/A"}</Td>
-                  <Td>{batch.expirationDate}</Td>
                   <Td>{batch.supplier}</Td>
                   <Td>{formatCurrency(batch.costPerVialCents)}</Td>
                   <Td><Badge tone={batchTone(batch)}>{batch.status}</Badge></Td>
@@ -475,7 +469,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
           </DataTable>
           {filteredBatches.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
-              No inventory batches match the current filters.
+              No inventory stock matches the current filters.
             </div>
           ) : null}
         </CardContent>
@@ -514,7 +508,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-semibold text-slate-950">{row.batch.productName}</div>
-                    <div className="mt-1 font-mono text-xs text-slate-500">{row.sku} / {row.batch.batchNumber}</div>
+                    <div className="mt-1 font-mono text-xs text-slate-500">{row.sku}</div>
                   </div>
                   <Badge tone={signalTone(row.signal)}>{row.signal}</Badge>
                 </div>

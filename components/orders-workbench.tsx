@@ -26,7 +26,7 @@ type EditableLine = {
 };
 
 const paymentMethods = ["Processor", "Zelle", "Venmo", "ACH", "Crypto", "Cash", "Other"] as const;
-const paymentStatuses = ["paid", "pending", "refunded", "canceled"] as const;
+const fulfillmentStatuses = ["unfulfilled", "packed", "shipped", "delivered"] as const;
 
 function centsToDollars(cents: number) {
   return (cents / 100).toFixed(2);
@@ -35,6 +35,23 @@ function centsToDollars(cents: number) {
 function dollarsToCents(value: string) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+}
+
+function dateInputValue(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
+}
+
+function displayDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "N/A" : date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function fulfillmentTone(status: Order["fulfillmentStatus"]) {
+  if (status === "delivered" || status === "fulfilled") return "green";
+  if (status === "shipped") return "blue";
+  if (status === "packed") return "amber";
+  return "slate";
 }
 
 function makeLine(): EditableLine {
@@ -60,8 +77,9 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   const [statusFilter, setStatusFilter] = useState("all");
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editLines, setEditLines] = useState<EditableLine[]>([]);
-  const [editLocation, setEditLocation] = useState("");
   const [editPaymentMethod, setEditPaymentMethod] = useState<(typeof paymentMethods)[number]>("Zelle");
+  const [editFulfillmentStatus, setEditFulfillmentStatus] = useState<(typeof fulfillmentStatuses)[number]>("unfulfilled");
+  const [editCreatedAt, setEditCreatedAt] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [message, setMessage] = useState<{ tone: "green" | "amber" | "red"; text: string } | null>(null);
 
@@ -133,25 +151,21 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     const haystack = [
       order.orderNumber,
       order.customerName,
-      order.location,
       order.paymentMethod,
       order.paymentStatus,
       order.fulfillmentStatus,
-      ...order.items.flatMap((item) => [item.productName, item.batchNumber, item.lotNumber])
+      order.createdAt,
+      ...order.items.map((item) => item.productName)
     ]
       .join(" ")
       .toLowerCase();
     const matchesSearch = !search || haystack.includes(search.toLowerCase());
     const matchesProduct = productFilter === "all" || order.items.some((item) => item.productId === productFilter || item.productName === productsById.get(productFilter)?.name);
     const matchesPayment = paymentFilter === "all" || order.paymentMethod === paymentFilter;
-    const matchesStatus = statusFilter === "all" || order.paymentStatus === statusFilter;
+    const matchesStatus = statusFilter === "all" || order.fulfillmentStatus === statusFilter;
 
     return matchesSearch && matchesProduct && matchesPayment && matchesStatus;
   });
-
-  function orderType(order: Order) {
-    return order.squareOrderId || order.squarePaymentId ? "Square" : "Manual";
-  }
 
   function hydrateLine(order: Order): EditableLine[] {
     return order.items.map((item) => {
@@ -172,8 +186,9 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     setMessage(null);
     setEditingOrderId(order.id);
     setEditLines(hydrateLine(order));
-    setEditLocation(order.location);
     setEditPaymentMethod(paymentMethods.includes(order.paymentMethod as (typeof paymentMethods)[number]) ? (order.paymentMethod as (typeof paymentMethods)[number]) : "Other");
+    setEditFulfillmentStatus(fulfillmentStatuses.includes(order.fulfillmentStatus as (typeof fulfillmentStatuses)[number]) ? (order.fulfillmentStatus as (typeof fulfillmentStatuses)[number]) : "unfulfilled");
+    setEditCreatedAt(dateInputValue(order.createdAt));
     setEditNotes(order.notes ?? "");
   }
 
@@ -221,8 +236,9 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
         orderId,
         customerId: orders.find((order) => order.id === orderId)?.customerId ?? "cust_placeholder",
         affiliateId: orders.find((order) => order.id === orderId)?.affiliateId,
-        locationId: editLocation.trim() || "Manual entry",
         paymentMethod: editPaymentMethod,
+        fulfillmentStatus: editFulfillmentStatus,
+        createdAt: editCreatedAt,
         items: editLines.map((line) => ({
           productId: line.productId,
           inventoryBatchId: line.inventoryBatchId,
@@ -267,16 +283,24 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   function renderEditPanel(order: Order) {
     return (
       <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-4">
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Location/type note</span>
-            <Input className="mt-1" value={editLocation} onChange={(event) => setEditLocation(event.target.value)} />
+            <span className="text-xs font-semibold uppercase text-slate-500">Order date</span>
+            <Input className="mt-1" type="date" value={editCreatedAt} onChange={(event) => setEditCreatedAt(event.target.value)} />
           </label>
           <label>
             <span className="text-xs font-semibold uppercase text-slate-500">Payment</span>
             <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editPaymentMethod} onChange={(event) => setEditPaymentMethod(event.target.value as (typeof paymentMethods)[number])}>
               {paymentMethods.map((method) => (
                 <option key={method} value={method}>{method}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">Fulfillment</span>
+            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editFulfillmentStatus} onChange={(event) => setEditFulfillmentStatus(event.target.value as (typeof fulfillmentStatuses)[number])}>
+              {fulfillmentStatuses.map((status) => (
+                <option key={status} value={status}>{status}</option>
               ))}
             </select>
           </label>
@@ -296,7 +320,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             const lineTotal = dollarsToCents(line.unitPrice) * line.quantity;
 
             return (
-              <div key={line.id} className={`grid gap-2 rounded-md border p-3 lg:grid-cols-[minmax(210px,1fr)_minmax(190px,0.9fr)_90px_130px_110px_36px] lg:items-end ${lineOverAllocated ? "border-amber-200 bg-amber-50" : "bg-slate-50"}`}>
+              <div key={line.id} className={`grid gap-2 rounded-md border p-3 lg:grid-cols-[minmax(230px,1fr)_140px_90px_130px_110px_36px] lg:items-end ${lineOverAllocated ? "border-amber-200 bg-amber-50" : "bg-slate-50"}`}>
                 <label>
                   <span className="text-xs font-semibold uppercase text-slate-500">SKU</span>
                   <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={line.productId} onChange={(event) => updateEditLine(line.id, { productId: event.target.value })}>
@@ -307,22 +331,16 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                   </select>
                   <div className="mt-1 text-xs text-slate-500">{product ? product.strengthLabel : "Choose a SKU"}</div>
                 </label>
-                <label>
-                  <span className="text-xs font-semibold uppercase text-slate-500">Batch / lot</span>
-                  <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={line.inventoryBatchId} onChange={(event) => updateEditLine(line.id, { inventoryBatchId: event.target.value })}>
-                    <option value="">Select batch</option>
-                    {availableBatches.map((candidate) => {
-                      const restored = originalQuantityByBatch.get(candidate.id) ?? 0;
-                      const available = candidate.quantityOnHand + restored - candidate.quantityReserved;
-                      return (
-                        <option key={candidate.id} value={candidate.id}>
-                          {candidate.batchNumber} / {candidate.lotNumber} - {Math.max(available, 0)} avail
-                        </option>
-                      );
-                    })}
+                <div>
+                  <div className="text-xs font-semibold uppercase text-slate-500">Stock count</div>
+                  <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-950">
+                    {batch ? `${formatNumber(Math.max(availableForBatch, 0))} available` : "Select SKU"}
+                  </div>
+                  <select className="sr-only" value={line.inventoryBatchId} onChange={(event) => updateEditLine(line.id, { inventoryBatchId: event.target.value })}>
+                    <option value="">Select stock</option>
+                    {availableBatches.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.id}</option>)}
                   </select>
-                  <div className="mt-1 text-xs text-slate-500">{batch ? `${formatNumber(Math.max(availableForBatch, 0))} available - ${batch.supplier}` : "N/A"}</div>
-                </label>
+                </div>
                 <label>
                   <span className="text-xs font-semibold uppercase text-slate-500">Qty</span>
                   <Input className="mt-1 bg-white" min={1} type="number" value={line.quantity} onChange={(event) => updateEditLine(line.id, { quantity: Math.max(Number(event.target.value), 1) })} />
@@ -340,7 +358,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                 </Button>
                 {lineOverAllocated ? (
                   <div className="text-xs font-medium text-amber-800 lg:col-span-6">
-                    This line exceeds available stock or uses a batch that is not available.
+                    This line exceeds available stock.
                   </div>
                 ) : null}
               </div>
@@ -409,10 +427,10 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             </select>
           </label>
           <label className="block">
-            <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
+            <span className="text-xs font-semibold uppercase text-slate-500">Fulfillment</span>
             <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="all">All status</option>
-              {paymentStatuses.map((status) => (
+              <option value="all">All fulfillment</option>
+              {fulfillmentStatuses.map((status) => (
                 <option key={status} value={status}>
                   {status}
                 </option>
@@ -438,7 +456,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-2">
                   <Badge tone={order.paymentStatus === "paid" ? "green" : "amber"}>{order.paymentStatus}</Badge>
-                  <Badge tone={order.fulfillmentStatus === "fulfilled" ? "green" : "slate"}>{order.fulfillmentStatus}</Badge>
+                  <Badge tone={fulfillmentTone(order.fulfillmentStatus)}>{order.fulfillmentStatus === "fulfilled" ? "delivered" : order.fulfillmentStatus}</Badge>
                 </div>
               </div>
 
@@ -452,12 +470,12 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                   <div className="font-semibold text-slate-950">{order.paymentMethod}</div>
                 </div>
                 <div className="rounded-md bg-slate-50 p-2">
-                  <div className="text-xs text-slate-500">Type</div>
-                  <div className="font-semibold text-slate-950">{orderType(order)}</div>
+                  <div className="text-xs text-slate-500">Fulfillment</div>
+                  <div className="font-semibold text-slate-950">{order.fulfillmentStatus === "fulfilled" ? "delivered" : order.fulfillmentStatus}</div>
                 </div>
                 <div className="rounded-md bg-slate-50 p-2">
-                  <div className="text-xs text-slate-500">Location</div>
-                  <div className="truncate font-semibold text-slate-950">{order.location}</div>
+                  <div className="text-xs text-slate-500">Date</div>
+                  <div className="truncate font-semibold text-slate-950">{displayDate(order.createdAt)}</div>
                 </div>
               </div>
 
@@ -468,7 +486,6 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                       <span className="min-w-0 truncate font-medium text-slate-950">{item.productName}</span>
                       <span className="shrink-0 text-slate-500">{formatNumberOrNA(item.quantity)}x</span>
                     </div>
-                    <div className="mt-1 truncate font-mono text-xs text-slate-500">{item.batchNumber} / {item.lotNumber}</div>
                   </div>
                 ))}
                 {order.items.length > 4 ? <div className="text-xs font-medium text-slate-500">+{order.items.length - 4} more items</div> : null}
@@ -490,19 +507,17 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           ))}
         </div>
 
-        <DataTable className="hidden lg:block" columns={["Order", "Customer", "Affiliate", "Location", "Items", "Payment", "Type", "Total", "Status", "Actions"]}>
+        <DataTable className="hidden lg:block" columns={["Order", "Customer", "Items", "Payment", "Total", "Fulfillment", "Date", "Actions"]}>
           {filteredOrders.map((order) => (
             <Fragment key={order.id}>
               <tr key={order.id}>
                 <Td className="font-medium text-slate-950">{order.orderNumber}</Td>
                 <Td>{order.customerName}</Td>
-                <Td>{order.affiliateName ?? "N/A"}</Td>
-                <Td>{order.location}</Td>
                 <Td>{order.items.map((item) => `${formatNumberOrNA(item.quantity)}x ${item.productName}`).join(", ")}</Td>
                 <Td><Badge tone={order.paymentStatus === "paid" ? "green" : "amber"}>{order.paymentMethod}</Badge></Td>
-                <Td>{orderType(order)}</Td>
                 <Td className="font-medium text-slate-950">{formatCurrencyOrNA(order.totalCents)}</Td>
-                <Td><Badge tone={order.fulfillmentStatus === "fulfilled" ? "green" : "slate"}>{order.fulfillmentStatus}</Badge></Td>
+                <Td><Badge tone={fulfillmentTone(order.fulfillmentStatus)}>{order.fulfillmentStatus === "fulfilled" ? "delivered" : order.fulfillmentStatus}</Badge></Td>
+                <Td>{displayDate(order.createdAt)}</Td>
                 <Td>
                   <div className="flex gap-2">
                     <Button variant="secondary" className="h-8 px-2" onClick={() => startEdit(order)}>
@@ -518,7 +533,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
               </tr>
               {editingOrderId === order.id ? (
                 <tr key={`${order.id}-edit`}>
-                  <Td colSpan={10} className="bg-slate-50">
+                  <Td colSpan={8} className="bg-slate-50">
                     {renderEditPanel(order)}
                   </Td>
                 </tr>

@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Boxes,
   ClipboardList,
-  MapPin,
   PackageCheck,
   Repeat,
   ShoppingBag,
@@ -26,12 +25,13 @@ import { formatCurrency, formatNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-function maxRevenue(revenue: number, total: number) {
-  if (total <= 0) return 0;
-  return Math.min(Math.round((revenue / total) * 100), 100);
-}
-
 type SignalTone = "blue" | "green" | "amber" | "slate";
+
+function productSignal(product: { unitsSoldWeek: number }) {
+  if (product.unitsSoldWeek >= 10) return { label: "Reorder watch", tone: "amber" as const };
+  if (product.unitsSoldWeek > 0) return { label: "Moving", tone: "blue" as const };
+  return { label: "No movement", tone: "slate" as const };
+}
 
 export default async function AnalyticsPage() {
   const summary = getAnalyticsSummaryFromStore(await getLocalStore());
@@ -40,13 +40,12 @@ export default async function AnalyticsPage() {
     .sort((left, right) => right.unitsSoldWeek - left.unitsSoldWeek || right.revenueWeekCents - left.revenueWeekCents)
     .slice(0, 8);
   const followUps = summary.topCustomers.filter((customer) => customer.orderCount > 0).slice(0, 8);
-  const totalLocationRevenue = summary.locationSales.reduce((sum, location) => sum + location.revenue * 100, 0);
   const urgentProducts = productsToWatch.filter((product) => product.unitsSoldWeek >= 10);
   const operatingSignals: Array<{ label: string; value: string; detail: string; href: string; tone: SignalTone; icon: LucideIcon }> = [
     {
       label: "Reorder pressure",
       value: formatNumber(summary.lowStock.length),
-      detail: summary.lowStock.length > 0 ? "Low-stock batches need action" : "No low-stock alerts from thresholds",
+      detail: summary.lowStock.length > 0 ? "Low-stock counts need action" : "No low-stock alerts from thresholds",
       href: "/inventory",
       tone: summary.lowStock.length > 0 ? "amber" : "green",
       icon: AlertTriangle
@@ -67,19 +66,10 @@ export default async function AnalyticsPage() {
       tone: followUps.length > 0 ? "blue" : "slate",
       icon: Users
     },
-    {
-      label: "Lot review",
-      value: formatNumber(summary.expiringSoon.length),
-      detail: "Batches expiring inside the operating window",
-      href: "/inventory",
-      tone: summary.expiringSoon.length > 0 ? "amber" : "green",
-      icon: Timer
-    }
   ];
 
   const exceptions: Array<{ label: string; value: number; href: string; icon: LucideIcon }> = [
-    { label: "Low-stock batches", value: summary.lowStock.length, href: "/inventory", icon: AlertTriangle },
-    { label: "Expiring soon", value: summary.expiringSoon.length, href: "/inventory", icon: Timer },
+    { label: "Low-stock counts", value: summary.lowStock.length, href: "/inventory", icon: AlertTriangle },
     { label: "Dormant customers", value: summary.dormantCustomers.length, href: "/customers", icon: Users },
     { label: "Open products", value: summary.products.filter((product) => product.active).length, href: "/products", icon: Boxes }
   ];
@@ -89,13 +79,13 @@ export default async function AnalyticsPage() {
       <PageHeader
         eyebrow="Analytics"
         title="Operating intelligence"
-        description="A practical readout for sales momentum, product velocity, customer follow-up, location performance, and fulfillment risk."
+        description="A practical readout for sales momentum, product velocity, customer follow-up, fulfillment pressure, and inventory risk."
         icon={TrendingUp}
         kicker={`${formatNumber(summary.ordersWeek)} paid orders this week`}
         stats={[
           { label: "Today", value: formatCurrency(summary.revenueTodayCents, 0), detail: `${formatNumber(summary.ordersToday)} orders / ${formatNumber(summary.unitsToday)} units`, icon: ShoppingBag, tone: "green" },
           { label: "Week", value: formatCurrency(summary.revenueWeekCents, 0), detail: `${formatNumber(summary.unitsWeek)} units sold in 7 days`, icon: TrendingUp, tone: "blue" },
-          { label: "Inventory risk", value: formatNumber(summary.lowStock.length), detail: "Low-stock batches needing review", icon: AlertTriangle, tone: summary.lowStock.length > 0 ? "amber" : "green" },
+          { label: "Inventory risk", value: formatNumber(summary.lowStock.length), detail: "Low-stock counts needing review", icon: AlertTriangle, tone: summary.lowStock.length > 0 ? "amber" : "green" },
           { label: "Follow-up", value: formatNumber(followUps.length), detail: "Customers with purchase history", icon: Users, tone: followUps.length > 0 ? "blue" : "slate" }
         ]}
         actions={
@@ -122,9 +112,9 @@ export default async function AnalyticsPage() {
         <MetricCard featured title="Revenue today" value={formatCurrency(summary.revenueTodayCents)} detail={`${formatNumber(summary.ordersToday)} orders / ${formatNumber(summary.unitsToday)} units`} icon={TrendingUp} tone="green" />
         <MetricCard title="Revenue week" value={formatCurrency(summary.revenueWeekCents)} detail={`${formatNumber(summary.ordersWeek)} paid orders in 7 days`} icon={ShoppingBag} tone="blue" />
         <MetricCard title="Units week" value={formatNumber(summary.unitsWeek)} detail={summary.topWeek?.unitsSoldWeek ? `${summary.topWeek.name} leads demand` : "No product movement yet"} icon={PackageCheck} tone="slate" />
-        <MetricCard title="Inventory risk" value={formatNumber(summary.lowStock.length)} detail="Low-stock batches needing review" icon={AlertTriangle} tone={summary.lowStock.length > 0 ? "amber" : "green"} />
+        <MetricCard title="Inventory risk" value={formatNumber(summary.lowStock.length)} detail="Low-stock counts needing review" icon={AlertTriangle} tone={summary.lowStock.length > 0 ? "amber" : "green"} />
         <MetricCard title="Average order" value={formatCurrency(summary.aovTodayCents)} detail="Today across paid orders" icon={ClipboardList} tone="slate" />
-        <MetricCard title="Locations" value={formatNumber(summary.locationSales.length)} detail="Places or events producing sales" icon={MapPin} tone="blue" />
+        <MetricCard title="Open products" value={formatNumber(summary.products.filter((product) => product.active).length)} detail="Active catalog items" icon={Boxes} tone="blue" />
         <MetricCard title="Active customers" value={formatNumber(summary.activeCustomers)} detail={`${formatNumber(summary.repeatPurchaseRate)}% repeat purchase signal`} icon={Repeat} tone="blue" />
         <MetricCard title="Purchase rhythm" value={summary.averageDaysBetweenPurchases ? `${summary.averageDaysBetweenPurchases}d` : "N/A"} detail="Average time between paid orders" icon={Timer} tone="slate" />
       </section>
@@ -195,51 +185,55 @@ export default async function AnalyticsPage() {
               <p className="mt-1 text-sm text-slate-500">SKU velocity and reorder attention from paid orders.</p>
             </div>
           </CardHeader>
-          <CardContent>
-            <DataTable columns={["Product", "Units week", "Revenue week", "Signal"]}>
-              {productsToWatch.map((product) => (
-                <tr key={product.id}>
-                  <Td className="font-medium text-slate-950">{product.name}</Td>
-                  <Td>{formatNumber(product.unitsSoldWeek)}</Td>
-                  <Td>{formatCurrency(product.revenueWeekCents)}</Td>
-                  <Td><Badge tone={product.unitsSoldWeek >= 10 ? "amber" : product.unitsSoldWeek > 0 ? "blue" : "slate"}>{product.unitsSoldWeek >= 10 ? "Reorder watch" : product.unitsSoldWeek > 0 ? "Moving" : "No movement"}</Badge></Td>
-                </tr>
-              ))}
+          <CardContent className="space-y-3">
+            <div className="space-y-3 lg:hidden">
+              {productsToWatch.map((product) => {
+                const signal = productSignal(product);
+
+                return (
+                  <div key={product.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-950">{product.name}</div>
+                        <div className="mt-1 font-mono text-xs text-slate-500">{product.sku}</div>
+                      </div>
+                      <Badge tone={signal.tone}>{signal.label}</Badge>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                      <div className="rounded-md bg-slate-50 p-2">
+                        <div className="text-xs text-slate-500">Units week</div>
+                        <div className="font-semibold text-slate-950">{formatNumber(product.unitsSoldWeek)}</div>
+                      </div>
+                      <div className="rounded-md bg-slate-50 p-2">
+                        <div className="text-xs text-slate-500">Revenue week</div>
+                        <div className="font-semibold text-slate-950">{formatCurrency(product.revenueWeekCents)}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <DataTable className="hidden lg:block" columns={["Product", "Units week", "Revenue week", "Signal"]}>
+              {productsToWatch.map((product) => {
+                const signal = productSignal(product);
+
+                return (
+                  <tr key={product.id}>
+                    <Td className="font-medium text-slate-950">{product.name}</Td>
+                    <Td>{formatNumber(product.unitsSoldWeek)}</Td>
+                    <Td>{formatCurrency(product.revenueWeekCents)}</Td>
+                    <Td><Badge tone={signal.tone}>{signal.label}</Badge></Td>
+                  </tr>
+                );
+              })}
             </DataTable>
             {productsToWatch.length === 0 ? <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No product sales yet.</div> : null}
           </CardContent>
         </Card>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>Sales by location</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Where money is coming from right now.</p>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {summary.locationSales.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">No paid orders have location data yet.</div>
-            ) : null}
-            {summary.locationSales.map((location) => {
-              const revenueCents = location.revenue * 100;
-              return (
-                <div key={location.name}>
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-medium text-slate-800">{location.name}</span>
-                    <span className="text-slate-500">{formatCurrency(revenueCents)} / {formatNumber(location.orders)} orders</span>
-                  </div>
-                  <div className="mt-2 h-2 rounded-full bg-slate-100">
-                    <div className="h-2 rounded-full bg-slate-950" style={{ width: `${maxRevenue(revenueCents, totalLocationRevenue)}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-
+      <section>
         <Card>
           <CardHeader>
             <div>
@@ -247,8 +241,32 @@ export default async function AnalyticsPage() {
               <p className="mt-1 text-sm text-slate-500">Best customers to recognize, retain, or re-engage.</p>
             </div>
           </CardHeader>
-          <CardContent>
-            <DataTable columns={["Customer", "Spend", "Orders", "Favorite", "Signal"]}>
+          <CardContent className="space-y-3">
+            <div className="space-y-3 lg:hidden">
+              {followUps.map((customer) => (
+                <div key={customer.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-950">{customer.firstName} {customer.lastName}</div>
+                      <div className="mt-1 truncate text-sm text-slate-500">{customer.favoriteProduct}</div>
+                    </div>
+                    <Badge tone={customer.orderCount > 1 ? "blue" : "green"}>{customer.orderCount > 1 ? "Repeat" : "New"}</Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Spend</div>
+                      <div className="font-semibold text-slate-950">{formatCurrency(customer.totalSpendCents)}</div>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Orders</div>
+                      <div className="font-semibold text-slate-950">{formatNumber(customer.orderCount)}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <DataTable className="hidden lg:block" columns={["Customer", "Spend", "Orders", "Favorite", "Signal"]}>
               {followUps.map((customer) => (
                 <tr key={customer.id}>
                   <Td className="font-medium text-slate-950">{customer.firstName} {customer.lastName}</Td>
@@ -272,14 +290,40 @@ export default async function AnalyticsPage() {
               <p className="mt-1 text-sm text-slate-500">Newest paid orders that should already reflect in revenue and inventory.</p>
             </div>
           </CardHeader>
-          <CardContent>
-            <DataTable columns={["Order", "Customer", "Items", "Location", "Total"]}>
+          <CardContent className="space-y-3">
+            <div className="space-y-3 lg:hidden">
+              {summary.recentOrders.map((order) => (
+                <div key={order.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-950">{order.orderNumber}</div>
+                      <div className="mt-1 truncate text-sm text-slate-500">{order.customerName}</div>
+                    </div>
+                    <div className="text-sm font-semibold text-slate-950">{formatCurrency(order.totalCents)}</div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Items</div>
+                      <div className="font-semibold text-slate-950">{formatNumber(order.items.reduce((sum, item) => sum + item.quantity, 0))}</div>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Total</div>
+                      <div className="font-semibold text-slate-950">{formatCurrency(order.totalCents)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-sm leading-6 text-slate-600">
+                    {order.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <DataTable className="hidden lg:block" columns={["Order", "Customer", "Items", "Total"]}>
               {summary.recentOrders.map((order) => (
                 <tr key={order.id}>
                   <Td className="font-medium text-slate-950">{order.orderNumber}</Td>
                   <Td>{order.customerName}</Td>
                   <Td>{order.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")}</Td>
-                  <Td>{order.location}</Td>
                   <Td className="font-medium text-slate-950">{formatCurrency(order.totalCents)}</Td>
                 </tr>
               ))}

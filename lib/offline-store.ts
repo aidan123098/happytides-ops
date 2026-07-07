@@ -10,6 +10,8 @@ type OrderPayload = {
   locationId?: string;
   paymentMethod: Order["paymentMethod"];
   squarePaymentId?: string;
+  fulfillmentStatus?: "unfulfilled" | "packed" | "shipped" | "delivered";
+  createdAt?: string;
   items: Array<{
     productId: string;
     inventoryBatchId: string;
@@ -121,7 +123,7 @@ function recalculateCustomerStats(customerId?: string) {
   const sorted = [...orders].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   customer.firstPurchaseAt = sorted[0]?.createdAt ?? "N/A";
   customer.lastPurchaseAt = sorted[sorted.length - 1]?.createdAt ?? "N/A";
-  customer.status = orders.length > 2 ? "VIP" : orders.length > 1 ? "returning" : "new";
+  customer.status = orders.length > 1 ? "returning" : "new";
 }
 
 function recalculateAffiliateStats(affiliateId?: string) {
@@ -158,8 +160,12 @@ function restoreOrderInventory(order: Order, actor: SessionUser) {
   for (const item of order.items) {
     const batch = item.inventoryBatchId ? state.inventoryBatches.find((candidate) => candidate.id === item.inventoryBatchId) : undefined;
     if (!batch) continue;
-    batch.quantityOnHand += item.quantity;
-    batch.quantitySold = Math.max(batch.quantitySold - item.quantity, 0);
+    if (order.fulfillmentStatus === "delivered" || order.fulfillmentStatus === "fulfilled") {
+      batch.quantityOnHand += item.quantity;
+      batch.quantitySold = Math.max(batch.quantitySold - item.quantity, 0);
+    } else {
+      batch.quantityReserved = Math.max(batch.quantityReserved - item.quantity, 0);
+    }
     addMovement(batch, item.quantity, `Restored from ${order.orderNumber}`, actor);
   }
 }
@@ -188,7 +194,7 @@ function validateOrderInventory(order: Order, availableAllowance = new Map<strin
   }
 
   for (const { batch, quantity } of quantityByBatch.values()) {
-    const available = batch.quantityOnHand + (availableAllowance.get(batch.id) ?? 0);
+    const available = batch.quantityOnHand - batch.quantityReserved + (availableAllowance.get(batch.id) ?? 0);
     if (available < quantity) {
       throw new Error(`${batch.productName} only has ${available} units available.`);
     }
@@ -201,8 +207,12 @@ function allocateOrderInventory(order: Order, actor: SessionUser) {
   for (const item of order.items) {
     const batch = item.inventoryBatchId ? state.inventoryBatches.find((candidate) => candidate.id === item.inventoryBatchId) : undefined;
     if (!batch) continue;
-    batch.quantityOnHand -= item.quantity;
-    batch.quantitySold += item.quantity;
+    if (order.fulfillmentStatus === "delivered" || order.fulfillmentStatus === "fulfilled") {
+      batch.quantityOnHand -= item.quantity;
+      batch.quantitySold += item.quantity;
+    } else {
+      batch.quantityReserved += item.quantity;
+    }
     addMovement(batch, -item.quantity, `Allocated to ${order.orderNumber}`, actor);
   }
 }
@@ -243,8 +253,8 @@ function buildOrder(payload: OrderPayload, actor: SessionUser, existing?: Order)
     paymentMethod: payload.paymentMethod,
     squarePaymentId: payload.squarePaymentId,
     paymentStatus: "paid",
-    fulfillmentStatus: "fulfilled",
-    createdAt: existing?.createdAt ?? todayIso(),
+    fulfillmentStatus: payload.fulfillmentStatus ?? existing?.fulfillmentStatus ?? "unfulfilled",
+    createdAt: payload.createdAt ? new Date(payload.createdAt).toISOString() : existing?.createdAt ?? todayIso(),
     notes: payload.notes
   };
 }

@@ -133,12 +133,6 @@ export default async function SettingsPage() {
       tone: configured(square.accessToken) ? "green" : "amber"
     },
     {
-      label: "Location ID",
-      value: configured(square.locationId) ? "Configured" : "Missing",
-      detail: "Required to scope Square sales to the correct location.",
-      tone: configured(square.locationId) ? "green" : "amber"
-    },
-    {
       label: "Webhook signature",
       value: configured(square.webhookSignatureKey) ? "Configured" : "Missing",
       detail: "Used to verify Square webhook payloads.",

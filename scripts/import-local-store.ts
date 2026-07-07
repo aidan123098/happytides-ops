@@ -60,6 +60,9 @@ const paymentStatusMap: Record<Order["paymentStatus"], PaymentStatus> = {
 const fulfillmentStatusMap: Record<Order["fulfillmentStatus"], FulfillmentStatus> = {
   fulfilled: FulfillmentStatus.FULFILLED,
   unfulfilled: FulfillmentStatus.UNFULFILLED,
+  packed: FulfillmentStatus.PACKED,
+  shipped: FulfillmentStatus.PACKED,
+  delivered: FulfillmentStatus.FULFILLED,
   canceled: FulfillmentStatus.CANCELED
 };
 

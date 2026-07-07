@@ -83,11 +83,10 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   const realInitialCustomers = initialCustomers.filter((customer) => customer.id !== "cust_placeholder" && (customer.firstName !== "N/A" || customer.email !== "N/A" || customer.phone !== "N/A"));
   const realAffiliates = affiliates.filter((affiliate) => affiliate.id !== "aff_placeholder" && affiliate.name !== "N/A" && affiliate.code !== "N/A");
   const [customers, setCustomers] = useState(realInitialCustomers);
-  const [customerId, setCustomerId] = useState(realInitialCustomers[0]?.id ?? "cust_placeholder");
+  const [customerId, setCustomerId] = useState("");
   const [affiliateId, setAffiliateId] = useState("");
   const [customerForm, setCustomerForm] = useState<CustomerForm>(emptyCustomerForm);
   const [addingCustomer, setAddingCustomer] = useState(false);
-  const [location, setLocation] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>("Zelle");
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<LineItem[]>([newLineItem()]);
@@ -128,10 +127,10 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   }, new Map<string, number>());
   const overAllocatedItems = enrichedItems.filter((item) => {
     if (!item.batch) return false;
-    return (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand;
+    return (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand - item.batch.quantityReserved;
   });
   const invalidItem = enrichedItems.find((item) => !item.product || !item.batch || item.quantity < 1 || item.unitPriceCents <= 0);
-  const orderReady = !invalidItem && overAllocatedItems.length === 0 && subtotalCents > 0;
+  const orderReady = Boolean(customerId) && !addingCustomer && !invalidItem && overAllocatedItems.length === 0 && subtotalCents > 0;
 
   function updateProduct(id: string, productId: string) {
     const product = products.find((candidate) => candidate.id === productId);
@@ -210,9 +209,14 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
       return;
     }
 
+    if (!customerId || addingCustomer) {
+      setStatus({ tone: "red", message: "Select or add the customer before recording the order." });
+      return;
+    }
+
     if (overAllocatedItems.length > 0) {
       const item = overAllocatedItems[0];
-      setStatus({ tone: "red", message: `${item.product?.name ?? "Selected product"} only has ${item.batch?.quantityOnHand ?? 0} units available in the selected batch.` });
+      setStatus({ tone: "red", message: `${item.product?.name ?? "Selected product"} only has ${Math.max((item.batch?.quantityOnHand ?? 0) - (item.batch?.quantityReserved ?? 0), 0)} units available.` });
       return;
     }
 
@@ -225,8 +229,8 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
         body: JSON.stringify({
           customerId,
           affiliateId: affiliateId || undefined,
-          locationId: location.trim() || "Manual entry",
           paymentMethod,
+          fulfillmentStatus: "unfulfilled",
           items: enrichedItems.map((item) => ({
             productId: item.productId,
             inventoryBatchId: item.batchId,
@@ -263,7 +267,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
             Orders
           </Link>
           <p className="mt-5 text-sm font-semibold text-blue-700">Manual sales processing</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">New in-person order</h1>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">New order</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-500">
             Choose a catalog SKU to auto-load product pricing, then adjust quantity, payment method, and unit price if needed.
           </p>
@@ -288,7 +292,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
           </CardHeader>
           <CardContent className="space-y-3">
             {enrichedItems.map((item) => (
-              <div key={item.id} className={`grid gap-3 rounded-lg border p-3 lg:grid-cols-[minmax(220px,1fr)_minmax(0,1fr)_minmax(160px,0.7fr)_90px_130px_110px_36px] lg:items-end ${item.batch && (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand ? "border-amber-300 bg-amber-50/80" : "border-slate-200 bg-slate-50/70"}`}>
+              <div key={item.id} className={`grid gap-3 rounded-lg border p-3 lg:grid-cols-[minmax(220px,1fr)_minmax(0,1fr)_140px_90px_130px_110px_36px] lg:items-end ${item.batch && (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand - item.batch.quantityReserved ? "border-amber-300 bg-amber-50/80" : "border-slate-200 bg-slate-50/70"}`}>
                 <label className="block">
                   <span className="text-xs font-semibold uppercase text-slate-500">SKU</span>
                   <select
@@ -309,33 +313,16 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                   <div className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-2">
                     <div className="truncate text-sm font-semibold text-slate-950">{item.product?.name ?? "Enter SKU"}</div>
                     <div className="mt-1 truncate text-xs text-slate-500">
-                      {item.product ? `${item.product.sku} - ${item.batch?.supplier ?? "N/A"}` : "Price auto-fills from catalog"}
+                      {item.product ? item.product.sku : "Price auto-fills from catalog"}
                     </div>
                   </div>
                 </div>
-                <label className="block">
-                  <span className="text-xs font-semibold uppercase text-slate-500">Batch</span>
-                  <select
-                    className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30"
-                    value={item.batch?.id ?? item.batchId}
-                    onChange={(event) => updateLine(item.id, { batchId: event.target.value })}
-                    disabled={!item.product}
-                  >
-                    {!item.product ? <option value="">Select SKU first</option> : null}
-                    {item.batches.map((batch) => {
-                      const cartQuantity = quantityByBatchId.get(batch.id) ?? 0;
-                      const remaining = batch.quantityOnHand - cartQuantity;
-                      return (
-                        <option key={batch.id} value={batch.id}>
-                          {batch.batchNumber} / {batch.lotNumber} - {Math.max(remaining, 0)} left
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                    {item.batch ? `${item.batch.quantityOnHand} on hand before this order` : "Batch loads from selected SKU"}
+                <div>
+                  <div className="text-xs font-semibold uppercase text-slate-500">Stock count</div>
+                  <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-950">
+                    {item.batch ? `${Math.max(item.batch.quantityOnHand - item.batch.quantityReserved - (quantityByBatchId.get(item.batch.id) ?? 0), 0)} left` : "Select SKU"}
                   </div>
-                </label>
+                </div>
                 <label className="block">
                   <span className="text-xs font-semibold uppercase text-slate-500">Qty</span>
                   <Input
@@ -357,10 +344,10 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                 <Button type="button" variant="ghost" className="h-9 px-0" onClick={() => removeLine(item.id)}>
                   <Trash2 size={16} />
                 </Button>
-                {item.batch && (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand ? (
+                {item.batch && (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand - item.batch.quantityReserved ? (
                   <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-800 lg:col-span-7">
                     <AlertTriangle size={14} />
-                    Cart uses {quantityByBatchId.get(item.batch.id)} units from a batch with {item.batch.quantityOnHand} on hand.
+                    Cart uses more stock than is currently available.
                   </div>
                 ) : null}
               </div>
@@ -391,7 +378,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                   setCustomerId(event.target.value);
                 }}
               >
-                <option value="cust_placeholder">No customer / walk-in</option>
+                <option value="">Select customer</option>
                 {customers.map((customer) => (
                   <option key={customer.id} value={customer.id}>
                     {customer.firstName} {customer.lastName} - {customer.customerType === "wholesaler" ? "Wholesaler" : "Consumer"}
@@ -456,10 +443,6 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
               </select>
             </label>
             <label className="block">
-              <span className="text-xs font-semibold uppercase text-slate-500">Location/event</span>
-              <Input className="mt-1" value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Manual entry" />
-            </label>
-            <label className="block">
               <span className="text-xs font-semibold uppercase text-slate-500">Payment method</span>
               <select
                 className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30"
@@ -497,7 +480,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
             </Button>
             {!orderReady ? (
               <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
-                Complete each line with a SKU, batch, quantity, and available stock before recording.
+                Select a customer and complete each line with a SKU, quantity, and available stock before recording.
               </div>
             ) : null}
             {status ? (

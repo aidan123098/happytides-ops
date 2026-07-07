@@ -58,6 +58,9 @@ const paymentStatusMap = {
 const fulfillmentStatusMap = {
   fulfilled: FulfillmentStatus.FULFILLED,
   unfulfilled: FulfillmentStatus.UNFULFILLED,
+  packed: FulfillmentStatus.PACKED,
+  shipped: FulfillmentStatus.PACKED,
+  delivered: FulfillmentStatus.FULFILLED,
   canceled: FulfillmentStatus.CANCELED
 } as const;
 

@@ -34,7 +34,7 @@ export const customerInputSchema = z.object({
   emailConsent: z.boolean().default(false),
   source: z.enum(["walk-in", "referral", "event", "Instagram", "website", "other"]).default("walk-in"),
   notes: z.string().max(1000).optional(),
-  status: z.enum(["new", "returning", "VIP", "inactive"]).optional(),
+  status: z.enum(["new", "returning", "inactive"]).optional(),
   tags: z.array(z.string().min(1)).optional()
 });
 
@@ -67,6 +67,8 @@ export const orderInputSchema = z.object({
   locationId: z.string().optional(),
   paymentMethod: z.enum(["Processor", "Cash", "Zelle", "Venmo", "ACH", "Crypto", "Other"]),
   squarePaymentId: z.string().optional(),
+  fulfillmentStatus: z.enum(["unfulfilled", "packed", "shipped", "delivered"]).optional(),
+  createdAt: z.string().optional(),
   items: z
     .array(
       z.object({
