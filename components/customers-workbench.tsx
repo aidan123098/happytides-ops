@@ -1,6 +1,6 @@
 "use client";
 
-import { Edit3, Plus, Save, Trash2, X } from "lucide-react";
+import { Edit3, Plus, Save, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Customer } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
@@ -16,8 +16,11 @@ type CustomerForm = {
   email: string;
   phone: string;
   customerType: Customer["customerType"];
+  source: Customer["source"];
+  status: Customer["status"];
   smsConsent: boolean;
   emailConsent: boolean;
+  tags: string;
   notes: string;
 };
 
@@ -27,12 +30,17 @@ const emptyForm: CustomerForm = {
   email: "",
   phone: "",
   customerType: "consumer",
+  source: "walk-in",
+  status: "new",
   smsConsent: false,
   emailConsent: false,
+  tags: "",
   notes: ""
 };
 
 const customerTypes: Customer["customerType"][] = ["consumer", "wholesaler"];
+const customerSources: Customer["source"][] = ["walk-in", "referral", "event", "Instagram", "website", "other"];
+const customerStatuses: Customer["status"][] = ["new", "returning", "VIP", "inactive"];
 
 function isRealCustomer(customer: Customer) {
   return customer.id !== "cust_placeholder" && (customer.firstName !== "N/A" || customer.email !== "N/A" || customer.phone !== "N/A");
@@ -42,6 +50,24 @@ function typeLabel(type: Customer["customerType"] | undefined) {
   return type === "wholesaler" ? "Wholesaler" : "Consumer";
 }
 
+function sourceLabel(source: Customer["source"] | undefined) {
+  if (source === "walk-in") return "Walk-in";
+  if (source === "Instagram") return "Instagram";
+  return source ? source[0].toUpperCase() + source.slice(1) : "Other";
+}
+
+function statusLabel(status: Customer["status"] | undefined) {
+  if (status === "VIP") return "VIP";
+  return status ? status[0].toUpperCase() + status.slice(1) : "New";
+}
+
+function statusTone(status: Customer["status"] | undefined): "blue" | "green" | "amber" | "slate" {
+  if (status === "VIP") return "green";
+  if (status === "returning") return "blue";
+  if (status === "inactive") return "slate";
+  return "amber";
+}
+
 function customerToForm(customer: Customer): CustomerForm {
   return {
     firstName: customer.firstName === "N/A" ? "" : customer.firstName,
@@ -49,8 +75,11 @@ function customerToForm(customer: Customer): CustomerForm {
     email: customer.email === "N/A" ? "" : customer.email,
     phone: customer.phone === "N/A" ? "" : customer.phone,
     customerType: customer.customerType ?? "consumer",
+    source: customer.source ?? "walk-in",
+    status: customer.status ?? "new",
     smsConsent: customer.smsConsent,
     emailConsent: customer.emailConsent,
+    tags: customer.tags.join(", "),
     notes: customer.notes === "N/A" ? "" : customer.notes
   };
 }
@@ -64,9 +93,9 @@ function formPayload(form: CustomerForm) {
     customerType: form.customerType,
     smsConsent: form.smsConsent,
     emailConsent: form.emailConsent,
-    source: "walk-in",
-    status: "new",
-    tags: [],
+    source: form.source,
+    status: form.status,
+    tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
     notes: form.notes.trim() || undefined
   };
 }
@@ -75,6 +104,9 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
   const [customers, setCustomers] = useState(initialCustomers.filter(isRealCustomer));
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [consentFilter, setConsentFilter] = useState("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<CustomerForm>(emptyForm);
@@ -84,14 +116,23 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
   const filteredCustomers = useMemo(() => {
     return customers.filter((customer) => {
       const type = customer.customerType ?? "consumer";
-      const matchesSearch = [customer.firstName, customer.lastName, customer.email, customer.phone, customer.notes]
+      const source = customer.source ?? "walk-in";
+      const status = customer.status ?? "new";
+      const matchesSearch = [customer.firstName, customer.lastName, customer.email, customer.phone, customer.notes, customer.favoriteProduct, source, status, ...customer.tags]
         .join(" ")
         .toLowerCase()
         .includes(search.toLowerCase());
       const matchesType = typeFilter === "all" || type === typeFilter;
-      return matchesSearch && matchesType;
+      const matchesSource = sourceFilter === "all" || source === sourceFilter;
+      const matchesStatus = statusFilter === "all" || status === statusFilter;
+      const matchesConsent =
+        consentFilter === "all" ||
+        (consentFilter === "sms" && customer.smsConsent) ||
+        (consentFilter === "email" && customer.emailConsent) ||
+        (consentFilter === "none" && !customer.smsConsent && !customer.emailConsent);
+      return matchesSearch && matchesType && matchesSource && matchesStatus && matchesConsent;
     });
-  }, [customers, search, typeFilter]);
+  }, [consentFilter, customers, search, sourceFilter, statusFilter, typeFilter]);
 
   function resetForm() {
     setEditingId(null);
@@ -201,7 +242,23 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
                 {customerTypes.map((item) => <option key={item} value={item}>{typeLabel(item)}</option>)}
               </select>
             </label>
-            <label className="md:col-span-2 xl:col-span-5">
+            <label>
+              <span className="text-xs font-semibold uppercase text-slate-500">Source</span>
+              <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value as Customer["source"] })}>
+                {customerSources.map((item) => <option key={item} value={item}>{sourceLabel(item)}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
+              <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as Customer["status"] })}>
+                {customerStatuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}
+              </select>
+            </label>
+            <label className="md:col-span-2 xl:col-span-3">
+              <span className="text-xs font-semibold uppercase text-slate-500">Tags</span>
+              <Input className="mt-1 bg-white" value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="VIP, wholesale, follow-up" />
+            </label>
+            <label className="md:col-span-2 xl:col-span-3">
               <span className="text-xs font-semibold uppercase text-slate-500">Notes</span>
               <Input className="mt-1 bg-white" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
             </label>
@@ -229,16 +286,42 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</div>
         ) : null}
 
-        <div className="grid gap-3 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3 sm:grid-cols-[minmax(180px,1fr)_170px]">
+        <div className="grid gap-3 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3 md:grid-cols-[minmax(180px,1fr)_150px_150px_150px_150px]">
           <label>
             <span className="text-xs font-semibold uppercase text-slate-500">Search</span>
-            <Input className="mt-1 bg-white" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, email, phone, note" />
+            <div className="relative mt-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input className="bg-white pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, email, phone, tag" />
+            </div>
           </label>
           <label>
             <span className="text-xs font-semibold uppercase text-slate-500">Type</span>
             <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
               <option value="all">All types</option>
               {customerTypes.map((item) => <option key={item} value={item}>{typeLabel(item)}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">Source</span>
+            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
+              <option value="all">All sources</option>
+              {customerSources.map((item) => <option key={item} value={item}>{sourceLabel(item)}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
+            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">All status</option>
+              {customerStatuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">Consent</span>
+            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={consentFilter} onChange={(event) => setConsentFilter(event.target.value)}>
+              <option value="all">All consent</option>
+              <option value="sms">SMS yes</option>
+              <option value="email">Email yes</option>
+              <option value="none">No consent</option>
             </select>
           </label>
         </div>
@@ -252,12 +335,18 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
                   <div className="mt-1 text-sm text-slate-500">{customer.email}</div>
                   <div className="text-sm text-slate-500">{customer.phone}</div>
                 </div>
-                <Badge tone={(customer.customerType ?? "consumer") === "wholesaler" ? "amber" : "blue"}>{typeLabel(customer.customerType)}</Badge>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge tone={statusTone(customer.status)}>{statusLabel(customer.status)}</Badge>
+                  <Badge tone={(customer.customerType ?? "consumer") === "wholesaler" ? "amber" : "blue"}>{typeLabel(customer.customerType)}</Badge>
+                </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded-md bg-slate-50 p-2"><div className="text-xs text-slate-500">Orders</div><div className="font-semibold text-slate-950">{formatNumberOrNA(customer.orderCount)}</div></div>
                 <div className="rounded-md bg-slate-50 p-2"><div className="text-xs text-slate-500">Spend</div><div className="font-semibold text-slate-950">{formatCurrencyOrNA(customer.totalSpendCents)}</div></div>
+                <div className="rounded-md bg-slate-50 p-2"><div className="text-xs text-slate-500">Source</div><div className="font-semibold text-slate-950">{sourceLabel(customer.source)}</div></div>
+                <div className="rounded-md bg-slate-50 p-2"><div className="text-xs text-slate-500">Favorite</div><div className="font-semibold text-slate-950">{customer.favoriteProduct}</div></div>
               </div>
+              {customer.tags.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">{customer.tags.map((tag) => <Badge key={tag} tone="slate">{tag}</Badge>)}</div> : null}
               <div className="mt-3 text-sm text-slate-600">{customer.notes}</div>
               <div className="mt-3 flex gap-2">
                 <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => editCustomer(customer)}><Edit3 size={15} /> Edit</Button>
@@ -267,16 +356,21 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
           ))}
         </div>
 
-        <DataTable className="hidden md:block" columns={["Customer", "Type", "Contact", "Consent", "Orders", "Spend", "Notes", "Actions"]}>
+        <DataTable className="hidden md:block" columns={["Customer", "Status", "Type", "Contact", "Source", "Consent", "Spend", "Favorite", "Actions"]}>
           {filteredCustomers.map((customer) => (
             <tr key={customer.id}>
-              <Td><div className="font-medium text-slate-950">{customer.firstName} {customer.lastName}</div><div className="text-xs text-slate-500">Last purchase {customer.lastPurchaseAt}</div></Td>
+              <Td>
+                <div className="font-medium text-slate-950">{customer.firstName} {customer.lastName}</div>
+                <div className="text-xs text-slate-500">Last purchase {customer.lastPurchaseAt}</div>
+                {customer.tags.length > 0 ? <div className="mt-2 flex flex-wrap gap-1">{customer.tags.slice(0, 2).map((tag) => <Badge key={tag} tone="slate">{tag}</Badge>)}</div> : null}
+              </Td>
+              <Td><Badge tone={statusTone(customer.status)}>{statusLabel(customer.status)}</Badge></Td>
               <Td><Badge tone={(customer.customerType ?? "consumer") === "wholesaler" ? "amber" : "blue"}>{typeLabel(customer.customerType)}</Badge></Td>
               <Td><div>{customer.email}</div><div className="text-xs text-slate-500">{customer.phone}</div></Td>
+              <Td>{sourceLabel(customer.source)}</Td>
               <Td><div className="flex gap-2"><Badge tone={customer.smsConsent ? "green" : "slate"}>SMS</Badge><Badge tone={customer.emailConsent ? "green" : "slate"}>Email</Badge></div></Td>
-              <Td>{formatNumberOrNA(customer.orderCount)}</Td>
-              <Td><div className="font-medium text-slate-950">{formatCurrencyOrNA(customer.totalSpendCents)}</div><div className="text-xs text-slate-500">AOV {formatCurrencyOrNA(customer.averageOrderValueCents)}</div></Td>
-              <Td>{customer.notes}</Td>
+              <Td><div className="font-medium text-slate-950">{formatCurrencyOrNA(customer.totalSpendCents)}</div><div className="text-xs text-slate-500">{formatNumberOrNA(customer.orderCount)} orders / AOV {formatCurrencyOrNA(customer.averageOrderValueCents)}</div></Td>
+              <Td><div>{customer.favoriteProduct}</div><div className="text-xs text-slate-500">{customer.notes}</div></Td>
               <Td>
                 <div className="flex gap-2">
                   <Button type="button" variant="secondary" className="h-8 px-2" onClick={() => editCustomer(customer)}><Edit3 size={15} /></Button>
