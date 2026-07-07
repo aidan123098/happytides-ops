@@ -178,7 +178,11 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
           email: customerForm.email.trim() || "N/A",
           phone: customerForm.phone.trim() || "N/A",
           customerType: customerForm.customerType,
+          smsConsent: false,
+          emailConsent: false,
           source: "walk-in",
+          status: "new",
+          tags: [],
           notes: customerForm.notes.trim() || undefined
         })
       });
@@ -248,6 +252,11 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
         return;
       }
 
+      if (!payload.order) {
+        setStatus({ tone: "red", message: "Order was accepted but could not be loaded back into the order list. Refresh and try again." });
+        return;
+      }
+
       const returnTo = searchParams.get("returnTo") ?? "/orders";
       setStatus({ tone: "green", message: `Order ${payload.order.orderNumber} recorded locally for ${formatCurrency(payload.order.totalCents)}.` });
       window.location.assign(returnTo);
@@ -292,7 +301,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
           </CardHeader>
           <CardContent className="space-y-3">
             {enrichedItems.map((item) => (
-              <div key={item.id} className={`grid gap-3 rounded-lg border p-3 lg:grid-cols-[minmax(220px,1fr)_minmax(0,1fr)_140px_90px_130px_110px_36px] lg:items-end ${item.batch && (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand - item.batch.quantityReserved ? "border-amber-300 bg-amber-50/80" : "border-slate-200 bg-slate-50/70"}`}>
+              <div key={item.id} className={`grid gap-3 rounded-lg border p-3 lg:grid-cols-[minmax(260px,1.4fr)_150px_90px_130px_110px_36px] lg:items-end ${item.batch && (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand - item.batch.quantityReserved ? "border-amber-300 bg-amber-50/80" : "border-slate-200 bg-slate-50/70"}`}>
                 <label className="block">
                   <span className="text-xs font-semibold uppercase text-slate-500">SKU</span>
                   <select
@@ -308,15 +317,6 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                     ))}
                   </select>
                 </label>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold uppercase text-slate-500">Product</div>
-                  <div className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-2">
-                    <div className="truncate text-sm font-semibold text-slate-950">{item.product?.name ?? "Enter SKU"}</div>
-                    <div className="mt-1 truncate text-xs text-slate-500">
-                      {item.product ? item.product.sku : "Price auto-fills from catalog"}
-                    </div>
-                  </div>
-                </div>
                 <div>
                   <div className="text-xs font-semibold uppercase text-slate-500">Stock count</div>
                   <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-950">
@@ -345,7 +345,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                   <Trash2 size={16} />
                 </Button>
                 {item.batch && (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand - item.batch.quantityReserved ? (
-                  <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-800 lg:col-span-7">
+                  <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-800 lg:col-span-6">
                     <AlertTriangle size={14} />
                     Cart uses more stock than is currently available.
                   </div>
