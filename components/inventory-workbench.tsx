@@ -19,6 +19,7 @@ type InventoryWorkbenchProps = {
 const reorderTargetDays = 45;
 const reorderWatchDays = 30;
 const reorderUrgentDays = 14;
+const inventoryStatuses: InventoryBatch["status"][] = ["available", "reserved", "sold", "expired", "quarantined", "damaged"];
 
 export function InventoryWorkbench({ initialBatches, products, orders }: InventoryWorkbenchProps) {
   const router = useRouter();
@@ -28,8 +29,10 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
   const [supplier, setSupplier] = useState("all");
   const [adjustBatchId, setAdjustBatchId] = useState(initialBatches[0]?.id ?? "");
   const [adjustDelta, setAdjustDelta] = useState("0");
+  const [adjustStatus, setAdjustStatus] = useState<InventoryBatch["status"]>(initialBatches[0]?.status ?? "available");
   const [adjustReason, setAdjustReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const selectedBatch = batches.find((batch) => batch.id === adjustBatchId);
   const suppliers = [...new Set(batches.map((batch) => batch.supplier))];
   const filteredBatches = batches.filter((batch) => {
     const product = products.find((item) => item.id === batch.productId);
@@ -88,7 +91,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
     const response = await fetch("/api/inventory", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ batchId: adjustBatchId, quantityDelta, reason: adjustReason })
+      body: JSON.stringify({ batchId: adjustBatchId, quantityDelta, reason: adjustReason, status: adjustStatus })
     });
     const payload = await response.json();
 
@@ -99,8 +102,9 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
 
     setBatches((current) => current.map((batch) => (batch.id === payload.batch.id ? payload.batch : batch)));
     setAdjustDelta("0");
+    setAdjustStatus(payload.batch.status);
     setAdjustReason("");
-    setMessage(`${payload.batch.productName} adjusted. New on-hand count: ${payload.batch.quantityOnHand}.`);
+    setMessage(`${payload.batch.productName} adjusted. New on-hand count: ${payload.batch.quantityOnHand}. Status: ${payload.batch.status}.`);
     router.refresh();
   }
 
@@ -113,11 +117,41 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             <p className="mt-1 text-sm text-slate-500">Adjust local stock with a reason. Use + to add stock and - to remove stock.</p>
           </div>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_120px_minmax(180px,1fr)_auto] md:items-end">
+        <CardContent className="space-y-3">
+          {selectedBatch ? (
+            <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm md:grid-cols-4">
+              <div>
+                <div className="text-xs font-semibold uppercase text-slate-500">Selected batch</div>
+                <div className="mt-1 font-mono text-slate-950">{selectedBatch.batchNumber} / {selectedBatch.lotNumber}</div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase text-slate-500">Available</div>
+                <div className="mt-1 font-semibold text-slate-950">{Math.max(selectedBatch.quantityOnHand - selectedBatch.quantityReserved, 0)}</div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase text-slate-500">Expiration</div>
+                <div className="mt-1 text-slate-700">{selectedBatch.expirationDate}</div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase text-slate-500">Storage</div>
+                <div className="mt-1 text-slate-700">{selectedBatch.storageRequirements}</div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_120px_160px_minmax(180px,1fr)_auto] md:items-end">
           <label>
             <span className="text-xs font-semibold uppercase text-slate-500">Product</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={adjustBatchId} onChange={(event) => setAdjustBatchId(event.target.value)}>
-              {batches.map((batch) => <option key={batch.id} value={batch.id}>{batch.productName}</option>)}
+            <select
+              className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30"
+              value={adjustBatchId}
+              onChange={(event) => {
+                const nextBatch = batches.find((batch) => batch.id === event.target.value);
+                setAdjustBatchId(event.target.value);
+                setAdjustStatus(nextBatch?.status ?? "available");
+              }}
+            >
+              {batches.map((batch) => <option key={batch.id} value={batch.id}>{batch.productName} - {batch.batchNumber}/{batch.lotNumber}</option>)}
             </select>
           </label>
           <label>
@@ -125,11 +159,18 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             <Input className="mt-1" type="number" value={adjustDelta} onChange={(event) => setAdjustDelta(event.target.value)} placeholder="+5 or -2" />
           </label>
           <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
+            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={adjustStatus} onChange={(event) => setAdjustStatus(event.target.value as InventoryBatch["status"])}>
+              {inventoryStatuses.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
             <span className="text-xs font-semibold uppercase text-slate-500">Reason</span>
             <Input className="mt-1" value={adjustReason} onChange={(event) => setAdjustReason(event.target.value)} placeholder="Cycle count, damage, received stock" />
           </label>
           <Button onClick={applyAdjustment}>Save change</Button>
-          {message ? <div className="text-sm text-slate-600 md:col-span-4">{message}</div> : null}
+          {message ? <div className="text-sm text-slate-600 md:col-span-5">{message}</div> : null}
+          </div>
         </CardContent>
       </Card>
 
