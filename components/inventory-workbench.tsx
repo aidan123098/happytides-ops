@@ -21,6 +21,7 @@ const reorderTargetDays = 45;
 const reorderWatchDays = 30;
 const reorderUrgentDays = 14;
 const inventoryStatuses: InventoryBatch["status"][] = ["available", "reserved", "sold", "expired", "quarantined", "damaged"];
+type ReorderSignal = "Need sales data" | "Order now" | "Watch" | "Healthy";
 
 type ReceiveBatchForm = {
   productId: string;
@@ -40,6 +41,21 @@ type ReceiveBatchForm = {
 function dollarsToCents(value: string) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+}
+
+function batchTone(batch: InventoryBatch) {
+  if (batch.status === "available") {
+    return batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold ? "amber" : "green";
+  }
+
+  return batch.status === "quarantined" || batch.status === "damaged" || batch.status === "expired" ? "amber" : "slate";
+}
+
+function signalTone(signal: ReorderSignal) {
+  if (signal === "Order now") return "amber";
+  if (signal === "Watch") return "blue";
+  if (signal === "Healthy") return "green";
+  return "slate";
 }
 
 export function InventoryWorkbench({ initialBatches, products, orders }: InventoryWorkbenchProps) {
@@ -101,7 +117,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
         const daysRemaining = dailyVelocity > 0 ? Math.floor(available / dailyVelocity) : null;
         const targetStock = Math.ceil(dailyVelocity * reorderTargetDays);
         const suggestedReorder = dailyVelocity > 0 ? Math.max(targetStock - available, 0) : 0;
-        const signal = daysRemaining === null ? "Need sales data" : daysRemaining <= reorderUrgentDays ? "Order now" : daysRemaining <= reorderWatchDays ? "Watch" : "Healthy";
+        const signal: ReorderSignal = daysRemaining === null ? "Need sales data" : daysRemaining <= reorderUrgentDays ? "Order now" : daysRemaining <= reorderWatchDays ? "Watch" : "Healthy";
 
         return {
           batch,
@@ -378,7 +394,67 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             </label>
           </div>
 
-          <DataTable columns={["Product", "Batch / Lot", "On hand", "Reserved", "Sold", "Reorder", "Expiration", "Supplier", "Cost", "Status"]}>
+          <div className="space-y-3 lg:hidden">
+            {filteredBatches.map((batch) => {
+              const product = products.find((item) => item.id === batch.productId);
+              const available = Math.max(batch.quantityOnHand - batch.quantityReserved, 0);
+              const lowStock = batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold;
+
+              return (
+                <div key={batch.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-950">{batch.productName}</div>
+                      <div className="mt-1 font-mono text-xs text-slate-500">{product?.sku ?? "N/A"} / {batch.batchNumber} / {batch.lotNumber}</div>
+                    </div>
+                    <Badge tone={batchTone(batch)}>{lowStock ? "Low stock" : batch.status}</Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">On hand</div>
+                      <div className="font-semibold text-slate-950">{formatNumberOrNA(batch.quantityOnHand)}</div>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Available</div>
+                      <div className="font-semibold text-slate-950">{formatNumberOrNA(available)}</div>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Reserved</div>
+                      <div className="font-semibold text-slate-950">{formatNumberOrNA(batch.quantityReserved)}</div>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Sold</div>
+                      <div className="font-semibold text-slate-950">{formatNumberOrNA(batch.quantitySold)}</div>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Reorder point</div>
+                      <div className="font-semibold text-slate-950">{formatNumberOrNA(batch.reorderThreshold)}</div>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <div className="text-xs text-slate-500">Unit cost</div>
+                      <div className="font-semibold text-slate-950">{formatCurrency(batch.costPerVialCents)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-sm text-slate-600">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-slate-500">Expires</span>
+                      <span className="font-medium text-slate-950">{batch.expirationDate}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-slate-500">Supplier</span>
+                      <span className="text-right font-medium text-slate-950">{batch.supplier}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-slate-500">Storage</span>
+                      <span className="text-right font-medium text-slate-950">{batch.storageRequirements}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <DataTable className="hidden lg:block" columns={["Product", "Batch / Lot", "On hand", "Reserved", "Sold", "Reorder", "Expiration", "Supplier", "Cost", "Status"]}>
             {filteredBatches.map((batch) => {
               const lowStock = batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold;
               return (
@@ -392,11 +468,16 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
                   <Td>{batch.expirationDate}</Td>
                   <Td>{batch.supplier}</Td>
                   <Td>{formatCurrency(batch.costPerVialCents)}</Td>
-                  <Td><Badge tone={batch.status === "available" ? "green" : "slate"}>{batch.status}</Badge></Td>
+                  <Td><Badge tone={batchTone(batch)}>{batch.status}</Badge></Td>
                 </tr>
               );
             })}
           </DataTable>
+          {filteredBatches.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+              No inventory batches match the current filters.
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -427,7 +508,43 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
               <div className="mt-1 text-xl font-semibold text-slate-950">{formatNumberOrNA(reorderRows.filter((row) => row.signal === "Need sales data").length)}</div>
             </div>
           </div>
-          <DataTable columns={["Product", "SKU", "Available", "Sold 30d", "Daily velocity", "Days left", "Suggested order", "Signal"]}>
+          <div className="space-y-3 lg:hidden">
+            {reorderRows.map((row) => (
+              <div key={row.batch.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-950">{row.batch.productName}</div>
+                    <div className="mt-1 font-mono text-xs text-slate-500">{row.sku} / {row.batch.batchNumber}</div>
+                  </div>
+                  <Badge tone={signalTone(row.signal)}>{row.signal}</Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-md bg-slate-50 p-2">
+                    <div className="text-xs text-slate-500">Available</div>
+                    <div className="font-semibold text-slate-950">{formatNumberOrNA(row.available)}</div>
+                  </div>
+                  <div className="rounded-md bg-slate-50 p-2">
+                    <div className="text-xs text-slate-500">Sold 30d</div>
+                    <div className="font-semibold text-slate-950">{formatNumberOrNA(row.soldLastWindow)}</div>
+                  </div>
+                  <div className="rounded-md bg-slate-50 p-2">
+                    <div className="text-xs text-slate-500">Daily velocity</div>
+                    <div className="font-semibold text-slate-950">{row.dailyVelocity > 0 ? row.dailyVelocity.toFixed(2) : "N/A"}</div>
+                  </div>
+                  <div className="rounded-md bg-slate-50 p-2">
+                    <div className="text-xs text-slate-500">Days left</div>
+                    <div className="font-semibold text-slate-950">{row.daysRemaining === null ? "N/A" : `${row.daysRemaining} days`}</div>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2 text-sm">
+                  <div className="text-xs text-slate-500">Suggested order</div>
+                  <div className="font-semibold text-slate-950">{row.suggestedReorder > 0 ? `${formatNumberOrNA(row.suggestedReorder)} units` : "No reorder suggested"}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <DataTable className="hidden lg:block" columns={["Product", "SKU", "Available", "Sold 30d", "Daily velocity", "Days left", "Suggested order", "Signal"]}>
             {reorderRows.map((row) => (
               <tr key={row.batch.id}>
                 <Td className="font-medium text-slate-950">{row.batch.productName}</Td>
@@ -438,7 +555,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
                 <Td>{row.daysRemaining === null ? "N/A" : `${row.daysRemaining} days`}</Td>
                 <Td className="font-medium text-slate-950">{row.suggestedReorder > 0 ? row.suggestedReorder : "N/A"}</Td>
                 <Td>
-                  <Badge tone={row.signal === "Order now" ? "amber" : row.signal === "Watch" ? "blue" : "green"}>{row.signal}</Badge>
+                  <Badge tone={signalTone(row.signal)}>{row.signal}</Badge>
                 </Td>
               </tr>
             ))}

@@ -11,6 +11,19 @@ import { formatCurrency, formatNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
+function movementTone(type: string) {
+  const normalized = type.toLowerCase();
+
+  if (normalized.includes("sold") || normalized.includes("fulfillment") || normalized.includes("allocation")) return "blue";
+  if (normalized.includes("received") || normalized.includes("receipt") || normalized.includes("release") || normalized.includes("return")) return "green";
+  if (normalized.includes("damage") || normalized.includes("quarantine") || normalized.includes("recall") || normalized.includes("destruction") || normalized.includes("expired")) return "amber";
+  return "slate";
+}
+
+function movementLabel(type: string) {
+  return type.replaceAll("_", " ").toLowerCase();
+}
+
 export default async function InventoryPage() {
   const { inventoryBatches, inventoryMovements, orders, products } = await getLocalStore();
   const totalOnHand = inventoryBatches.reduce((sum, batch) => sum + batch.quantityOnHand, 0);
@@ -76,13 +89,39 @@ export default async function InventoryPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <DataTable columns={["Time", "Product", "Batch", "Type", "Change", "Reason", "User"]}>
+          <div className="space-y-3 md:hidden">
+            {inventoryMovements.map((movement) => (
+              <div key={movement.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-950">{movement.product}</div>
+                    <div className="mt-1 font-mono text-xs text-slate-500">{movement.batch}</div>
+                  </div>
+                  <Badge tone={movementTone(movement.type)}>{movementLabel(movement.type)}</Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-md bg-slate-50 p-2">
+                    <div className="text-xs text-slate-500">Change</div>
+                    <div className={movement.delta < 0 ? "font-semibold text-red-600" : "font-semibold text-emerald-700"}>{movement.delta}</div>
+                  </div>
+                  <div className="rounded-md bg-slate-50 p-2">
+                    <div className="text-xs text-slate-500">User</div>
+                    <div className="font-semibold text-slate-950">{movement.staff}</div>
+                  </div>
+                </div>
+                <div className="mt-3 text-sm text-slate-600">{movement.reason}</div>
+                <div className="mt-2 text-xs font-medium text-slate-500">{movement.at}</div>
+              </div>
+            ))}
+          </div>
+
+          <DataTable className="hidden md:block" columns={["Time", "Product", "Batch", "Type", "Change", "Reason", "User"]}>
             {inventoryMovements.map((movement) => (
               <tr key={movement.id}>
                 <Td>{movement.at}</Td>
                 <Td className="font-medium text-slate-950">{movement.product}</Td>
                 <Td className="font-mono text-xs">{movement.batch}</Td>
-                <Td><Badge tone={movement.type === "sold" ? "blue" : movement.type === "received" ? "green" : "amber"}>{movement.type}</Badge></Td>
+                <Td><Badge tone={movementTone(movement.type)}>{movementLabel(movement.type)}</Badge></Td>
                 <Td className={movement.delta < 0 ? "text-red-600" : "text-emerald-700"}>{movement.delta}</Td>
                 <Td>{movement.reason}</Td>
                 <Td>{movement.staff}</Td>
