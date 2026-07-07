@@ -20,6 +20,10 @@ export const productInputSchema = z.object({
   inventoryTrackingEnabled: z.boolean().default(true)
 });
 
+export const productUpdateSchema = productInputSchema.partial().extend({
+  productId: z.string().min(1)
+});
+
 export const customerInputSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),

@@ -396,3 +396,33 @@ export function createOfflineProduct(payload: Omit<Product, "id" | "marginPercen
   state.products.unshift(product);
   return product;
 }
+
+export function updateOfflineProduct(productId: string, payload: Partial<Omit<Product, "id" | "marginPercent" | "unitsSoldToday" | "unitsSoldWeek" | "revenueWeekCents">>) {
+  const product = state.products.find((item) => item.id === productId);
+  if (!product) return null;
+
+  Object.assign(product, {
+    name: payload.name ?? product.name,
+    sku: payload.sku ?? product.sku,
+    category: payload.category ?? product.category,
+    peptideType: payload.peptideType ?? product.peptideType,
+    strengthLabel: payload.strengthLabel ?? product.strengthLabel,
+    priceCents: payload.priceCents ?? product.priceCents,
+    costOfGoodsCents: payload.costOfGoodsCents ?? product.costOfGoodsCents,
+    active: payload.active ?? product.active,
+    colorAccent: payload.colorAccent ?? product.colorAccent,
+    description: payload.description ?? product.description,
+    coaUrl: payload.coaUrl ?? product.coaUrl,
+    researchUseDisclaimer: payload.researchUseDisclaimer ?? product.researchUseDisclaimer,
+    imageUrl: payload.imageUrl ?? product.imageUrl,
+    inventoryTrackingEnabled: payload.inventoryTrackingEnabled ?? product.inventoryTrackingEnabled
+  });
+  product.marginPercent = product.priceCents > 0 ? ((product.priceCents - product.costOfGoodsCents) / product.priceCents) * 100 : 0;
+  return product;
+}
+
+export function deleteOfflineProduct(productId: string) {
+  const before = state.products.length;
+  state.products = state.products.filter((item) => item.id !== productId);
+  return state.products.length !== before;
+}
