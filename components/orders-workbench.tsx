@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { productOptionLabel } from "@/lib/product-labels";
-import { formatCurrency, formatCurrencyOrNA, formatNumberOrNA } from "@/lib/utils";
+import { formatCurrency, formatCurrencyOrNA, formatNumber, formatNumberOrNA } from "@/lib/utils";
 
 type OrdersWorkbenchProps = {
   initialOrders: Order[];
@@ -65,8 +65,69 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   const [editNotes, setEditNotes] = useState("");
   const [message, setMessage] = useState<{ tone: "green" | "amber" | "red"; text: string } | null>(null);
 
-  const batchByProductId = useMemo(() => new Map(inventoryBatches.map((batch) => [batch.productId, batch])), [inventoryBatches]);
+  const batchesByProductId = useMemo(() => {
+    const grouped = new Map<string, InventoryBatch[]>();
+
+    for (const batch of inventoryBatches) {
+      const current = grouped.get(batch.productId) ?? [];
+      current.push(batch);
+      grouped.set(batch.productId, current);
+    }
+
+    for (const batches of grouped.values()) {
+      batches.sort((left, right) => left.expirationDate.localeCompare(right.expirationDate) || left.batchNumber.localeCompare(right.batchNumber));
+    }
+
+    return grouped;
+  }, [inventoryBatches]);
+  const batchesById = useMemo(() => new Map(inventoryBatches.map((batch) => [batch.id, batch])), [inventoryBatches]);
   const productsById = useMemo(() => new Map(initialProducts.map((product) => [product.id, product])), [initialProducts]);
+  const editingOrder = useMemo(() => orders.find((order) => order.id === editingOrderId), [editingOrderId, orders]);
+  const originalQuantityByBatch = useMemo(() => {
+    const restored = new Map<string, number>();
+
+    for (const item of editingOrder?.items ?? []) {
+      if (!item.inventoryBatchId) continue;
+      restored.set(item.inventoryBatchId, (restored.get(item.inventoryBatchId) ?? 0) + item.quantity);
+    }
+
+    return restored;
+  }, [editingOrder]);
+  const editQuantityByBatch = useMemo(() => {
+    const quantityByBatch = new Map<string, number>();
+
+    for (const line of editLines) {
+      if (!line.inventoryBatchId) continue;
+      quantityByBatch.set(line.inventoryBatchId, (quantityByBatch.get(line.inventoryBatchId) ?? 0) + line.quantity);
+    }
+
+    return quantityByBatch;
+  }, [editLines]);
+  const allocationIssues = useMemo(() => {
+    const issues: string[] = [];
+
+    for (const [batchId, quantity] of editQuantityByBatch.entries()) {
+      const batch = batchesById.get(batchId);
+
+      if (!batch) {
+        issues.push("Selected inventory batch was not found.");
+        continue;
+      }
+
+      const available = batch.quantityOnHand + (originalQuantityByBatch.get(batchId) ?? 0) - batch.quantityReserved;
+
+      if (batch.status !== "available") {
+        issues.push(`${batch.productName} batch ${batch.batchNumber} is ${batch.status}.`);
+      }
+
+      if (available < quantity) {
+        issues.push(`${batch.productName} batch ${batch.batchNumber} only has ${Math.max(available, 0)} units available.`);
+      }
+    }
+
+    return issues;
+  }, [batchesById, editQuantityByBatch, originalQuantityByBatch]);
+  const canSaveEdit = allocationIssues.length === 0;
 
   const filteredOrders = orders.filter((order) => {
     const haystack = [
@@ -95,7 +156,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   function hydrateLine(order: Order): EditableLine[] {
     return order.items.map((item) => {
       const product = item.productId ? productsById.get(item.productId) : initialProducts.find((candidate) => candidate.name === item.productName);
-      const batch = item.inventoryBatchId ? inventoryBatches.find((candidate) => candidate.id === item.inventoryBatchId) : product ? batchByProductId.get(product.id) : undefined;
+      const batch = item.inventoryBatchId ? inventoryBatches.find((candidate) => candidate.id === item.inventoryBatchId) : product ? batchesByProductId.get(product.id)?.[0] : undefined;
 
       return {
         id: crypto.randomUUID(),
@@ -124,7 +185,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
 
         if (patch.productId !== undefined) {
           const product = productsById.get(patch.productId);
-          const batch = product ? batchByProductId.get(product.id) : undefined;
+          const batch = product ? batchesByProductId.get(product.id)?.[0] : undefined;
           next.inventoryBatchId = batch?.id ?? "";
           next.unitPrice = product ? centsToDollars(product.priceCents) : "";
         }
@@ -145,6 +206,11 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
 
     if (invalidLine) {
       setMessage({ tone: "red", text: "Choose a SKU, quantity, and unit price before saving the order." });
+      return;
+    }
+
+    if (!canSaveEdit) {
+      setMessage({ tone: "red", text: allocationIssues[0] ?? "Fix inventory allocation before saving." });
       return;
     }
 
@@ -305,11 +371,15 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                       <div className="space-y-2">
                         {editLines.map((line) => {
                           const product = productsById.get(line.productId);
-                          const batch = product ? batchByProductId.get(product.id) : undefined;
+                          const availableBatches = product ? batchesByProductId.get(product.id) ?? [] : [];
+                          const batch = line.inventoryBatchId ? batchesById.get(line.inventoryBatchId) : undefined;
+                          const lineQuantityForBatch = batch ? editQuantityByBatch.get(batch.id) ?? 0 : 0;
+                          const availableForBatch = batch ? batch.quantityOnHand + (originalQuantityByBatch.get(batch.id) ?? 0) - batch.quantityReserved : 0;
+                          const lineOverAllocated = Boolean(batch && (batch.status !== "available" || availableForBatch < lineQuantityForBatch));
                           const lineTotal = dollarsToCents(line.unitPrice) * line.quantity;
 
                           return (
-                            <div key={line.id} className="grid gap-2 rounded-md border bg-slate-50 p-3 lg:grid-cols-[minmax(220px,1fr)_90px_130px_110px_36px] lg:items-end">
+                            <div key={line.id} className={`grid gap-2 rounded-md border p-3 lg:grid-cols-[minmax(210px,1fr)_minmax(190px,0.9fr)_90px_130px_110px_36px] lg:items-end ${lineOverAllocated ? "border-amber-200 bg-amber-50" : "bg-slate-50"}`}>
                               <label>
                                 <span className="text-xs font-semibold uppercase text-slate-500">SKU</span>
                                 <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={line.productId} onChange={(event) => updateEditLine(line.id, { productId: event.target.value })}>
@@ -318,7 +388,23 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                                     <option key={candidate.id} value={candidate.id}>{productOptionLabel(candidate)}</option>
                                   ))}
                                 </select>
-                                <div className="mt-1 text-xs text-slate-500">{batch ? `${batch.quantityOnHand} on hand - ${batch.supplier}` : "N/A"}</div>
+                                <div className="mt-1 text-xs text-slate-500">{product ? product.strengthLabel : "Choose a SKU"}</div>
+                              </label>
+                              <label>
+                                <span className="text-xs font-semibold uppercase text-slate-500">Batch / lot</span>
+                                <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={line.inventoryBatchId} onChange={(event) => updateEditLine(line.id, { inventoryBatchId: event.target.value })}>
+                                  <option value="">Select batch</option>
+                                  {availableBatches.map((candidate) => {
+                                    const restored = originalQuantityByBatch.get(candidate.id) ?? 0;
+                                    const available = candidate.quantityOnHand + restored - candidate.quantityReserved;
+                                    return (
+                                      <option key={candidate.id} value={candidate.id}>
+                                        {candidate.batchNumber} / {candidate.lotNumber} - {Math.max(available, 0)} avail
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                                <div className="mt-1 text-xs text-slate-500">{batch ? `${formatNumber(Math.max(availableForBatch, 0))} available - ${batch.supplier}` : "N/A"}</div>
                               </label>
                               <label>
                                 <span className="text-xs font-semibold uppercase text-slate-500">Qty</span>
@@ -335,10 +421,20 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                               <Button variant="ghost" className="h-9 px-0" onClick={() => setEditLines((current) => (current.length === 1 ? current : current.filter((candidate) => candidate.id !== line.id)))}>
                                 <Trash2 size={15} />
                               </Button>
+                              {lineOverAllocated ? (
+                                <div className="text-xs font-medium text-amber-800 lg:col-span-6">
+                                  This line exceeds available stock or uses a batch that is not available.
+                                </div>
+                              ) : null}
                             </div>
                           );
                         })}
                       </div>
+                      {allocationIssues.length > 0 ? (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+                          {allocationIssues[0]}
+                        </div>
+                      ) : null}
                       <div className="flex flex-wrap justify-between gap-2">
                         <Button variant="secondary" onClick={() => setEditLines((current) => [...current, makeLine()])}>
                           <Filter size={15} />
@@ -349,7 +445,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                             <X size={15} />
                             Cancel
                           </Button>
-                          <Button onClick={() => saveEdit(order.id)}>
+                          <Button onClick={() => saveEdit(order.id)} disabled={!canSaveEdit}>
                             <Save size={15} />
                             Save changes
                           </Button>
