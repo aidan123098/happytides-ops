@@ -152,11 +152,43 @@ function restoreOrderInventory(order: Order, actor: SessionUser) {
   }
 }
 
+function restoredQuantitiesFor(order: Order) {
+  const restored = new Map<string, number>();
+
+  for (const item of order.items) {
+    if (!item.inventoryBatchId) continue;
+    restored.set(item.inventoryBatchId, (restored.get(item.inventoryBatchId) ?? 0) + item.quantity);
+  }
+
+  return restored;
+}
+
+function validateOrderInventory(order: Order, availableAllowance = new Map<string, number>()) {
+  const quantityByBatch = new Map<string, { batch: InventoryBatch; quantity: number }>();
+
+  for (const item of order.items) {
+    if (!item.inventoryBatchId) continue;
+    const batch = state.inventoryBatches.find((candidate) => candidate.id === item.inventoryBatchId);
+    if (!batch) throw new Error(`${item.productName} inventory batch was not found.`);
+    const current = quantityByBatch.get(batch.id) ?? { batch, quantity: 0 };
+    current.quantity += item.quantity;
+    quantityByBatch.set(batch.id, current);
+  }
+
+  for (const { batch, quantity } of quantityByBatch.values()) {
+    const available = batch.quantityOnHand + (availableAllowance.get(batch.id) ?? 0);
+    if (available < quantity) {
+      throw new Error(`${batch.productName} only has ${available} units available.`);
+    }
+  }
+}
+
 function allocateOrderInventory(order: Order, actor: SessionUser) {
+  validateOrderInventory(order);
+
   for (const item of order.items) {
     const batch = item.inventoryBatchId ? state.inventoryBatches.find((candidate) => candidate.id === item.inventoryBatchId) : undefined;
     if (!batch) continue;
-    if (batch.quantityOnHand < item.quantity) throw new Error(`${batch.productName} does not have enough inventory.`);
     batch.quantityOnHand -= item.quantity;
     batch.quantitySold += item.quantity;
     addMovement(batch, -item.quantity, `Allocated to ${order.orderNumber}`, actor);
@@ -315,8 +347,9 @@ export function updateOfflineOrder(orderId: string, payload: OrderPayload, actor
   const index = state.orders.findIndex((order) => order.id === orderId);
   if (index === -1) return null;
   const previous = state.orders[index];
-  restoreOrderInventory(previous, actor);
   const updated = buildOrder(payload, actor, previous);
+  validateOrderInventory(updated, restoredQuantitiesFor(previous));
+  restoreOrderInventory(previous, actor);
   allocateOrderInventory(updated, actor);
   state.orders[index] = updated;
   recalculateCustomerStats(previous.customerId);

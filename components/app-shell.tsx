@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Activity,
   BarChart3,
   Boxes,
   ClipboardList,
+  DollarSign,
   LogOut,
   Menu,
   Plus,
@@ -19,7 +21,7 @@ import {
   Users,
   X
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import type { SessionUser } from "@/lib/auth";
 
@@ -45,7 +47,14 @@ function roleLabel(user: SessionUser | null) {
   return user ? "Owner" : "Signed out";
 }
 
-export function AppShell({ children, currentUser }: { children: React.ReactNode; currentUser: SessionUser | null }) {
+type ShellPulse = {
+  revenueTodayCents: number;
+  ordersToday: number;
+  lowStockCount: number;
+  unitsToday: number;
+};
+
+export function AppShell({ children, currentUser, pulse }: { children: React.ReactNode; currentUser: SessionUser | null; pulse: ShellPulse }) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -172,6 +181,29 @@ export function AppShell({ children, currentUser }: { children: React.ReactNode;
               <Plus size={16} />
               <span className="hidden sm:inline">New order</span>
             </Link>
+          </div>
+          <div className="hidden border-t border-slate-200/70 bg-white/80 px-8 py-2 text-slate-950 lg:block">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+              <div className="inline-flex h-8 items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800">
+                <DollarSign size={14} />
+                {formatCurrency(pulse.revenueTodayCents, 0)} today
+              </div>
+              <div className="inline-flex h-8 items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-blue-800">
+                <ClipboardList size={14} />
+                {formatNumber(pulse.ordersToday)} orders
+              </div>
+              <div className="inline-flex h-8 items-center gap-2 rounded-md border border-cyan-200 bg-cyan-50 px-3 text-xs font-semibold text-cyan-800">
+                <Activity size={14} />
+                {formatNumber(pulse.unitsToday)} units moved
+              </div>
+              <div className={cn(
+                "inline-flex h-8 items-center gap-2 rounded-md border px-3 text-xs font-semibold",
+                pulse.lowStockCount > 0 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"
+              )}>
+                <Boxes size={14} />
+                {formatNumber(pulse.lowStockCount)} stock alerts
+              </div>
+            </div>
           </div>
         </header>
         {commandOpen ? (

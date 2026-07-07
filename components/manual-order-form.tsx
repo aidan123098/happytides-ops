@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Plus, ReceiptText, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, ReceiptText, Trash2 } from "lucide-react";
 import Link from "next/link";
 import type { Affiliate, Customer, InventoryBatch, Product } from "@/types/domain";
 import { Button } from "@/components/ui/button";
@@ -96,27 +96,46 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   const [savingCustomer, setSavingCustomer] = useState(false);
 
   const batchesByProductId = useMemo(() => {
-    return new Map(inventoryBatches.map((batch) => [batch.productId, batch]));
+    const grouped = new Map<string, InventoryBatch[]>();
+
+    for (const batch of inventoryBatches) {
+      grouped.set(batch.productId, [...(grouped.get(batch.productId) ?? []), batch]);
+    }
+
+    return grouped;
   }, [inventoryBatches]);
 
   const enrichedItems = items.map((item) => {
     const product = products.find((candidate) => candidate.id === item.productId);
-    const batch = product ? batchesByProductId.get(product.id) : undefined;
+    const batches = product ? batchesByProductId.get(product.id) ?? [] : [];
+    const batch = batches.find((candidate) => candidate.id === item.batchId) ?? batches[0];
     const unitPriceCents = dollarsToCents(item.unitPrice);
     return {
       ...item,
       product,
       batch,
+      batches,
       unitPriceCents,
       lineTotalCents: unitPriceCents * item.quantity
     };
   });
 
   const subtotalCents = enrichedItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  const quantityByBatchId = enrichedItems.reduce((accumulator, item) => {
+    if (!item.batch?.id) return accumulator;
+    accumulator.set(item.batch.id, (accumulator.get(item.batch.id) ?? 0) + item.quantity);
+    return accumulator;
+  }, new Map<string, number>());
+  const overAllocatedItems = enrichedItems.filter((item) => {
+    if (!item.batch) return false;
+    return (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand;
+  });
+  const invalidItem = enrichedItems.find((item) => !item.product || !item.batch || item.quantity < 1 || item.unitPriceCents <= 0);
+  const orderReady = !invalidItem && overAllocatedItems.length === 0 && subtotalCents > 0;
 
   function updateProduct(id: string, productId: string) {
     const product = products.find((candidate) => candidate.id === productId);
-    const batch = product ? batchesByProductId.get(product.id) : undefined;
+    const batch = product ? batchesByProductId.get(product.id)?.[0] : undefined;
 
     setItems((currentItems) =>
       currentItems.map((item) => {
@@ -185,10 +204,15 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
 
   async function submitOrder() {
     setStatus(null);
-    const invalidItem = enrichedItems.find((item) => !item.product || !item.batch || item.quantity < 1 || item.unitPriceCents <= 0);
 
     if (invalidItem) {
       setStatus({ tone: "red", message: "Enter a valid catalog SKU, quantity, and unit price before recording the order." });
+      return;
+    }
+
+    if (overAllocatedItems.length > 0) {
+      const item = overAllocatedItems[0];
+      setStatus({ tone: "red", message: `${item.product?.name ?? "Selected product"} only has ${item.batch?.quantityOnHand ?? 0} units available in the selected batch.` });
       return;
     }
 
@@ -264,7 +288,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
           </CardHeader>
           <CardContent className="space-y-3">
             {enrichedItems.map((item) => (
-              <div key={item.id} className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 lg:grid-cols-[minmax(220px,1fr)_minmax(0,1fr)_90px_130px_110px_36px] lg:items-end">
+              <div key={item.id} className={`grid gap-3 rounded-lg border p-3 lg:grid-cols-[minmax(220px,1fr)_minmax(0,1fr)_minmax(160px,0.7fr)_90px_130px_110px_36px] lg:items-end ${item.batch && (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand ? "border-amber-300 bg-amber-50/80" : "border-slate-200 bg-slate-50/70"}`}>
                 <label className="block">
                   <span className="text-xs font-semibold uppercase text-slate-500">SKU</span>
                   <select
@@ -285,10 +309,33 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                   <div className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-2">
                     <div className="truncate text-sm font-semibold text-slate-950">{item.product?.name ?? "Enter SKU"}</div>
                     <div className="mt-1 truncate text-xs text-slate-500">
-                      {item.product ? `${item.product.sku} - ${item.batch?.quantityOnHand ?? "N/A"} on hand - ${item.batch?.supplier ?? "N/A"}` : "Price auto-fills from catalog"}
+                      {item.product ? `${item.product.sku} - ${item.batch?.supplier ?? "N/A"}` : "Price auto-fills from catalog"}
                     </div>
                   </div>
                 </div>
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase text-slate-500">Batch</span>
+                  <select
+                    className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30"
+                    value={item.batch?.id ?? item.batchId}
+                    onChange={(event) => updateLine(item.id, { batchId: event.target.value })}
+                    disabled={!item.product}
+                  >
+                    {!item.product ? <option value="">Select SKU first</option> : null}
+                    {item.batches.map((batch) => {
+                      const cartQuantity = quantityByBatchId.get(batch.id) ?? 0;
+                      const remaining = batch.quantityOnHand - cartQuantity;
+                      return (
+                        <option key={batch.id} value={batch.id}>
+                          {batch.batchNumber} / {batch.lotNumber} - {Math.max(remaining, 0)} left
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                    {item.batch ? `${item.batch.quantityOnHand} on hand before this order` : "Batch loads from selected SKU"}
+                  </div>
+                </label>
                 <label className="block">
                   <span className="text-xs font-semibold uppercase text-slate-500">Qty</span>
                   <Input
@@ -310,6 +357,12 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                 <Button type="button" variant="ghost" className="h-9 px-0" onClick={() => removeLine(item.id)}>
                   <Trash2 size={16} />
                 </Button>
+                {item.batch && (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand ? (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-800 lg:col-span-7">
+                    <AlertTriangle size={14} />
+                    Cart uses {quantityByBatchId.get(item.batch.id)} units from a batch with {item.batch.quantityOnHand} on hand.
+                  </div>
+                ) : null}
               </div>
             ))}
           </CardContent>
@@ -438,10 +491,15 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                 <div className="text-2xl font-semibold">{formatCurrency(subtotalCents)}</div>
               </div>
             </div>
-            <Button type="button" className="h-10 w-full" onClick={submitOrder} disabled={submitting}>
+            <Button type="button" className="h-10 w-full" onClick={submitOrder} disabled={submitting || !orderReady}>
               <CheckCircle2 size={16} />
               {submitting ? "Recording..." : "Record order"}
             </Button>
+            {!orderReady ? (
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
+                Complete each line with a SKU, batch, quantity, and available stock before recording.
+              </div>
+            ) : null}
             {status ? (
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
                 <Badge tone={status.tone}>{status.tone === "green" ? "Saved" : "Check"}</Badge>
