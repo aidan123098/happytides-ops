@@ -396,6 +396,26 @@ export function adjustOfflineInventory(payload: { batchId: string; quantityDelta
   return batch;
 }
 
+export function createOfflineInventoryBatch(payload: Omit<InventoryBatch, "id" | "productName" | "quantityReserved" | "quantitySold"> & { reason: string }, actor: SessionUser) {
+  const product = state.products.find((item) => item.id === payload.productId);
+  if (!product) throw new Error("Product not found.");
+
+  const duplicate = state.inventoryBatches.find((item) => item.productId === payload.productId && item.batchNumber === payload.batchNumber && item.lotNumber === payload.lotNumber);
+  if (duplicate) throw new Error("A batch with that product, batch number, and lot number already exists.");
+
+  const { reason, ...batchPayload } = payload;
+  const batch: InventoryBatch = {
+    ...batchPayload,
+    id: id("batch"),
+    productName: product.name,
+    quantityReserved: 0,
+    quantitySold: 0
+  };
+  state.inventoryBatches.unshift(batch);
+  addMovement(batch, payload.quantityOnHand, reason, actor);
+  return batch;
+}
+
 export function createOfflineProduct(payload: Omit<Product, "id" | "marginPercent" | "unitsSoldToday" | "unitsSoldWeek" | "revenueWeekCents">) {
   const product: Product = {
     ...payload,

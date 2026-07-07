@@ -91,3 +91,18 @@ export const inventoryAdjustmentSchema = z.object({
   reason: z.string().min(4),
   status: z.enum(["available", "reserved", "sold", "expired", "quarantined", "damaged"]).optional()
 });
+
+export const inventoryBatchInputSchema = z.object({
+  productId: z.string().min(1),
+  quantityOnHand: z.number().int().nonnegative(),
+  reorderThreshold: z.number().int().nonnegative().nullable().optional(),
+  batchNumber: z.string().min(1),
+  lotNumber: z.string().min(1),
+  expirationDate: z.string().min(1),
+  supplier: z.string().min(1),
+  costPerVialCents: z.number().int().nonnegative(),
+  storageRequirements: z.string().min(1),
+  coaDocumentUrl: z.string().optional(),
+  status: z.enum(["available", "reserved", "sold", "expired", "quarantined", "damaged"]).default("available"),
+  reason: z.string().min(4)
+});
