@@ -44,7 +44,19 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 export function isDatabaseUnavailable(error: unknown) {
-  return error instanceof Error && error.message.includes("Can't reach database server");
+  if (!(error instanceof Error)) return false;
+
+  const code = "code" in error && typeof error.code === "string" ? error.code : "";
+  return (
+    code === "P1001" ||
+    code === "P1012" ||
+    code === "P2024" ||
+    error.name === "PrismaClientInitializationError" ||
+    error.message.includes("Can't reach database server") ||
+    error.message.includes("DATABASE_URL") ||
+    error.message.includes("Timed out fetching a new connection") ||
+    error.message.includes("connect ECONNREFUSED")
+  );
 }
 
 export function getOfflineStore(): OperationalStore {

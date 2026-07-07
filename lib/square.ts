@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { isDatabaseUnavailable } from "@/lib/offline-store";
 import { prisma } from "@/lib/prisma";
 
 type SquareWebhookResult = {
@@ -84,13 +85,17 @@ export async function handleSquareWebhook(payload: unknown): Promise<SquareWebho
 
 export async function syncSquareData() {
   if (!squareConfigured()) {
-    await prisma.squareSyncRun.create({
-      data: {
-        status: "NOT_CONNECTED",
-        finishedAt: new Date(),
-        error: "Square access token and location ID are required before sync can run."
-      }
-    });
+    try {
+      await prisma.squareSyncRun.create({
+        data: {
+          status: "NOT_CONNECTED",
+          finishedAt: new Date(),
+          error: "Square access token and location ID are required before sync can run."
+        }
+      });
+    } catch (error) {
+      if (!isDatabaseUnavailable(error)) throw error;
+    }
 
     return {
       connected: false,
@@ -98,17 +103,24 @@ export async function syncSquareData() {
     };
   }
 
-  const run = await prisma.squareSyncRun.create({
-    data: {
-      status: "NOT_IMPLEMENTED",
-      finishedAt: new Date(),
-      error: "Square API ingestion is configured but not yet implemented in this build."
+  const run = await (async () => {
+    try {
+      return await prisma.squareSyncRun.create({
+        data: {
+          status: "NOT_IMPLEMENTED",
+          finishedAt: new Date(),
+          error: "Square API ingestion is configured but not yet implemented in this build."
+        }
+      });
+    } catch (error) {
+      if (!isDatabaseUnavailable(error)) throw error;
+      return null;
     }
-  });
+  })();
 
   return {
     connected: true,
-    runId: run.id,
+    runId: run?.id,
     error: "Square API ingestion is not yet implemented. No records were imported."
   };
 }

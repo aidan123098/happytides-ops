@@ -16,7 +16,8 @@ export function SquareSyncButton({ compact = false }: { compact?: boolean }) {
       const response = await fetch("/api/square/sync", { method: "POST" });
       const payload = await response.json();
       const checked = payload.ordersChecked ?? payload.paymentsChecked ?? "N/A";
-      setMessage(response.ok ? `Square sync checked ${checked} records.` : payload.error ?? "Square sync could not run.");
+      const successMessage = payload.runId ? `Square sync run ${payload.runId} created.` : `Square sync checked ${checked} records.`;
+      setMessage(response.ok ? successMessage : payload.error ?? "Square sync could not run.");
     } catch {
       setMessage("Square sync could not run.");
     } finally {
@@ -25,7 +26,7 @@ export function SquareSyncButton({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="relative hidden sm:block">
+    <div className="relative inline-block">
       <Button variant="secondary" className={compact ? "h-8" : undefined} onClick={runSync} disabled={syncing}>
         <RefreshCw size={16} className={syncing ? "animate-spin" : undefined} />
         {syncing ? "Syncing" : "Import Square"}
