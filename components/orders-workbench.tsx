@@ -264,6 +264,114 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     setMessage({ tone: "green", text: `${order.orderNumber} removed and stock restored.` });
   }
 
+  function renderEditPanel(order: Order) {
+    return (
+      <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-3">
+          <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">Location/type note</span>
+            <Input className="mt-1" value={editLocation} onChange={(event) => setEditLocation(event.target.value)} />
+          </label>
+          <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">Payment</span>
+            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editPaymentMethod} onChange={(event) => setEditPaymentMethod(event.target.value as (typeof paymentMethods)[number])}>
+              {paymentMethods.map((method) => (
+                <option key={method} value={method}>{method}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">Notes</span>
+            <Input className="mt-1" value={editNotes} onChange={(event) => setEditNotes(event.target.value)} />
+          </label>
+        </div>
+        <div className="space-y-2">
+          {editLines.map((line) => {
+            const product = productsById.get(line.productId);
+            const availableBatches = product ? batchesByProductId.get(product.id) ?? [] : [];
+            const batch = line.inventoryBatchId ? batchesById.get(line.inventoryBatchId) : undefined;
+            const lineQuantityForBatch = batch ? editQuantityByBatch.get(batch.id) ?? 0 : 0;
+            const availableForBatch = batch ? batch.quantityOnHand + (originalQuantityByBatch.get(batch.id) ?? 0) - batch.quantityReserved : 0;
+            const lineOverAllocated = Boolean(batch && (batch.status !== "available" || availableForBatch < lineQuantityForBatch));
+            const lineTotal = dollarsToCents(line.unitPrice) * line.quantity;
+
+            return (
+              <div key={line.id} className={`grid gap-2 rounded-md border p-3 lg:grid-cols-[minmax(210px,1fr)_minmax(190px,0.9fr)_90px_130px_110px_36px] lg:items-end ${lineOverAllocated ? "border-amber-200 bg-amber-50" : "bg-slate-50"}`}>
+                <label>
+                  <span className="text-xs font-semibold uppercase text-slate-500">SKU</span>
+                  <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={line.productId} onChange={(event) => updateEditLine(line.id, { productId: event.target.value })}>
+                    <option value="">Select SKU</option>
+                    {initialProducts.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>{productOptionLabel(candidate)}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-xs text-slate-500">{product ? product.strengthLabel : "Choose a SKU"}</div>
+                </label>
+                <label>
+                  <span className="text-xs font-semibold uppercase text-slate-500">Batch / lot</span>
+                  <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={line.inventoryBatchId} onChange={(event) => updateEditLine(line.id, { inventoryBatchId: event.target.value })}>
+                    <option value="">Select batch</option>
+                    {availableBatches.map((candidate) => {
+                      const restored = originalQuantityByBatch.get(candidate.id) ?? 0;
+                      const available = candidate.quantityOnHand + restored - candidate.quantityReserved;
+                      return (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.batchNumber} / {candidate.lotNumber} - {Math.max(available, 0)} avail
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <div className="mt-1 text-xs text-slate-500">{batch ? `${formatNumber(Math.max(availableForBatch, 0))} available - ${batch.supplier}` : "N/A"}</div>
+                </label>
+                <label>
+                  <span className="text-xs font-semibold uppercase text-slate-500">Qty</span>
+                  <Input className="mt-1 bg-white" min={1} type="number" value={line.quantity} onChange={(event) => updateEditLine(line.id, { quantity: Math.max(Number(event.target.value), 1) })} />
+                </label>
+                <label>
+                  <span className="text-xs font-semibold uppercase text-slate-500">Unit price</span>
+                  <Input className="mt-1 bg-white" value={line.unitPrice} onChange={(event) => updateEditLine(line.id, { unitPrice: event.target.value })} />
+                </label>
+                <div>
+                  <div className="text-xs font-semibold uppercase text-slate-500">Total</div>
+                  <div className="mt-2 text-sm font-semibold text-slate-950">{formatCurrency(lineTotal)}</div>
+                </div>
+                <Button variant="ghost" className="h-9 px-0" onClick={() => setEditLines((current) => (current.length === 1 ? current : current.filter((candidate) => candidate.id !== line.id)))}>
+                  <Trash2 size={15} />
+                </Button>
+                {lineOverAllocated ? (
+                  <div className="text-xs font-medium text-amber-800 lg:col-span-6">
+                    This line exceeds available stock or uses a batch that is not available.
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        {allocationIssues.length > 0 ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+            {allocationIssues[0]}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap justify-between gap-2">
+          <Button variant="secondary" onClick={() => setEditLines((current) => [...current, makeLine()])}>
+            <Filter size={15} />
+            Add item
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setEditingOrderId(null)}>
+              <X size={15} />
+              Cancel
+            </Button>
+            <Button onClick={() => saveEdit(order.id)} disabled={!canSaveEdit}>
+              <Save size={15} />
+              Save changes
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -320,7 +428,69 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           </div>
         ) : null}
 
-        <DataTable columns={["Order", "Customer", "Affiliate", "Location", "Items", "Payment", "Type", "Total", "Status", "Actions"]}>
+        <div className="space-y-3 lg:hidden">
+          {filteredOrders.map((order) => (
+            <div key={order.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold text-slate-950">{order.orderNumber}</div>
+                  <div className="mt-1 truncate text-sm text-slate-500">{order.customerName}</div>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <Badge tone={order.paymentStatus === "paid" ? "green" : "amber"}>{order.paymentStatus}</Badge>
+                  <Badge tone={order.fulfillmentStatus === "fulfilled" ? "green" : "slate"}>{order.fulfillmentStatus}</Badge>
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-md bg-slate-50 p-2">
+                  <div className="text-xs text-slate-500">Total</div>
+                  <div className="font-semibold text-slate-950">{formatCurrencyOrNA(order.totalCents)}</div>
+                </div>
+                <div className="rounded-md bg-slate-50 p-2">
+                  <div className="text-xs text-slate-500">Payment</div>
+                  <div className="font-semibold text-slate-950">{order.paymentMethod}</div>
+                </div>
+                <div className="rounded-md bg-slate-50 p-2">
+                  <div className="text-xs text-slate-500">Type</div>
+                  <div className="font-semibold text-slate-950">{orderType(order)}</div>
+                </div>
+                <div className="rounded-md bg-slate-50 p-2">
+                  <div className="text-xs text-slate-500">Location</div>
+                  <div className="truncate font-semibold text-slate-950">{order.location}</div>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {order.items.slice(0, 4).map((item, itemIndex) => (
+                  <div key={`${order.id}-${item.productId ?? item.productName}-${item.inventoryBatchId ?? item.batchNumber}-${itemIndex}`} className="rounded-md border border-slate-200 bg-slate-50 p-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate font-medium text-slate-950">{item.productName}</span>
+                      <span className="shrink-0 text-slate-500">{formatNumberOrNA(item.quantity)}x</span>
+                    </div>
+                    <div className="mt-1 truncate font-mono text-xs text-slate-500">{item.batchNumber} / {item.lotNumber}</div>
+                  </div>
+                ))}
+                {order.items.length > 4 ? <div className="text-xs font-medium text-slate-500">+{order.items.length - 4} more items</div> : null}
+              </div>
+
+              <div className="mt-3 flex gap-2">
+                <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => startEdit(order)}>
+                  <Edit3 size={15} />
+                  Edit
+                </Button>
+                <Button type="button" variant="ghost" className="h-8 flex-1 text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => removeOrder(order)}>
+                  <Trash2 size={15} />
+                  Remove
+                </Button>
+              </div>
+
+              {editingOrderId === order.id ? <div className="mt-3">{renderEditPanel(order)}</div> : null}
+            </div>
+          ))}
+        </div>
+
+        <DataTable className="hidden lg:block" columns={["Order", "Customer", "Affiliate", "Location", "Items", "Payment", "Type", "Total", "Status", "Actions"]}>
           {filteredOrders.map((order) => (
             <Fragment key={order.id}>
               <tr key={order.id}>
@@ -349,109 +519,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
               {editingOrderId === order.id ? (
                 <tr key={`${order.id}-edit`}>
                   <Td colSpan={10} className="bg-slate-50">
-                    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <label>
-                          <span className="text-xs font-semibold uppercase text-slate-500">Location/type note</span>
-                          <Input className="mt-1" value={editLocation} onChange={(event) => setEditLocation(event.target.value)} />
-                        </label>
-                        <label>
-                          <span className="text-xs font-semibold uppercase text-slate-500">Payment</span>
-                          <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editPaymentMethod} onChange={(event) => setEditPaymentMethod(event.target.value as (typeof paymentMethods)[number])}>
-                            {paymentMethods.map((method) => (
-                              <option key={method} value={method}>{method}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          <span className="text-xs font-semibold uppercase text-slate-500">Notes</span>
-                          <Input className="mt-1" value={editNotes} onChange={(event) => setEditNotes(event.target.value)} />
-                        </label>
-                      </div>
-                      <div className="space-y-2">
-                        {editLines.map((line) => {
-                          const product = productsById.get(line.productId);
-                          const availableBatches = product ? batchesByProductId.get(product.id) ?? [] : [];
-                          const batch = line.inventoryBatchId ? batchesById.get(line.inventoryBatchId) : undefined;
-                          const lineQuantityForBatch = batch ? editQuantityByBatch.get(batch.id) ?? 0 : 0;
-                          const availableForBatch = batch ? batch.quantityOnHand + (originalQuantityByBatch.get(batch.id) ?? 0) - batch.quantityReserved : 0;
-                          const lineOverAllocated = Boolean(batch && (batch.status !== "available" || availableForBatch < lineQuantityForBatch));
-                          const lineTotal = dollarsToCents(line.unitPrice) * line.quantity;
-
-                          return (
-                            <div key={line.id} className={`grid gap-2 rounded-md border p-3 lg:grid-cols-[minmax(210px,1fr)_minmax(190px,0.9fr)_90px_130px_110px_36px] lg:items-end ${lineOverAllocated ? "border-amber-200 bg-amber-50" : "bg-slate-50"}`}>
-                              <label>
-                                <span className="text-xs font-semibold uppercase text-slate-500">SKU</span>
-                                <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={line.productId} onChange={(event) => updateEditLine(line.id, { productId: event.target.value })}>
-                                  <option value="">Select SKU</option>
-                                  {initialProducts.map((candidate) => (
-                                    <option key={candidate.id} value={candidate.id}>{productOptionLabel(candidate)}</option>
-                                  ))}
-                                </select>
-                                <div className="mt-1 text-xs text-slate-500">{product ? product.strengthLabel : "Choose a SKU"}</div>
-                              </label>
-                              <label>
-                                <span className="text-xs font-semibold uppercase text-slate-500">Batch / lot</span>
-                                <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={line.inventoryBatchId} onChange={(event) => updateEditLine(line.id, { inventoryBatchId: event.target.value })}>
-                                  <option value="">Select batch</option>
-                                  {availableBatches.map((candidate) => {
-                                    const restored = originalQuantityByBatch.get(candidate.id) ?? 0;
-                                    const available = candidate.quantityOnHand + restored - candidate.quantityReserved;
-                                    return (
-                                      <option key={candidate.id} value={candidate.id}>
-                                        {candidate.batchNumber} / {candidate.lotNumber} - {Math.max(available, 0)} avail
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                                <div className="mt-1 text-xs text-slate-500">{batch ? `${formatNumber(Math.max(availableForBatch, 0))} available - ${batch.supplier}` : "N/A"}</div>
-                              </label>
-                              <label>
-                                <span className="text-xs font-semibold uppercase text-slate-500">Qty</span>
-                                <Input className="mt-1 bg-white" min={1} type="number" value={line.quantity} onChange={(event) => updateEditLine(line.id, { quantity: Math.max(Number(event.target.value), 1) })} />
-                              </label>
-                              <label>
-                                <span className="text-xs font-semibold uppercase text-slate-500">Unit price</span>
-                                <Input className="mt-1 bg-white" value={line.unitPrice} onChange={(event) => updateEditLine(line.id, { unitPrice: event.target.value })} />
-                              </label>
-                              <div>
-                                <div className="text-xs font-semibold uppercase text-slate-500">Total</div>
-                                <div className="mt-2 text-sm font-semibold text-slate-950">{formatCurrency(lineTotal)}</div>
-                              </div>
-                              <Button variant="ghost" className="h-9 px-0" onClick={() => setEditLines((current) => (current.length === 1 ? current : current.filter((candidate) => candidate.id !== line.id)))}>
-                                <Trash2 size={15} />
-                              </Button>
-                              {lineOverAllocated ? (
-                                <div className="text-xs font-medium text-amber-800 lg:col-span-6">
-                                  This line exceeds available stock or uses a batch that is not available.
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {allocationIssues.length > 0 ? (
-                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-                          {allocationIssues[0]}
-                        </div>
-                      ) : null}
-                      <div className="flex flex-wrap justify-between gap-2">
-                        <Button variant="secondary" onClick={() => setEditLines((current) => [...current, makeLine()])}>
-                          <Filter size={15} />
-                          Add item
-                        </Button>
-                        <div className="flex gap-2">
-                          <Button variant="ghost" onClick={() => setEditingOrderId(null)}>
-                            <X size={15} />
-                            Cancel
-                          </Button>
-                          <Button onClick={() => saveEdit(order.id)} disabled={!canSaveEdit}>
-                            <Save size={15} />
-                            Save changes
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
+                    {renderEditPanel(order)}
                   </Td>
                 </tr>
               ) : null}
