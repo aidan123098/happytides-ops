@@ -1,6 +1,6 @@
 "use client";
 
-import { Edit3, Plus, Save, Trash2, X } from "lucide-react";
+import { Edit3, HandCoins, Plus, Save, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Affiliate } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
@@ -154,6 +154,36 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
     if (editingId === affiliate.id) resetForm();
   }
 
+  async function recordPayout(affiliate: Affiliate) {
+    const payoutDueCents = affiliate.payoutDueCents ?? 0;
+
+    if (payoutDueCents <= 0) {
+      setError(`${affiliate.name} has no payout due.`);
+      return;
+    }
+
+    if (!window.confirm(`Record ${formatCurrencyOrNA(payoutDueCents)} payout for ${affiliate.name}?`)) return;
+
+    setError("");
+    const response = await fetch("/api/affiliates", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        affiliateId: affiliate.id,
+        totalPayoutCents: (affiliate.totalPayoutCents ?? 0) + payoutDueCents,
+        lastPayoutAt: new Date().toISOString()
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setError(data.error || "Could not record payout");
+      return;
+    }
+
+    setAffiliates((current) => current.map((item) => item.id === affiliate.id ? data.affiliate : item));
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -255,16 +285,21 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
                 <span className="text-slate-500">Rate</span>
                 <span className="font-medium text-slate-950">{formatPercentOrNA(affiliate.payoutRatePercent)}</span>
               </div>
+              <div className="mt-2 flex items-center justify-between text-sm">
+                <span className="text-slate-500">Last paid</span>
+                <span className="font-medium text-slate-950">{affiliate.lastPayoutAt}</span>
+              </div>
               <div className="mt-3 text-sm text-slate-600">{affiliate.notes}</div>
               <div className="mt-3 flex gap-2">
                 <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => editAffiliate(affiliate)}><Edit3 size={15} /> Edit</Button>
+                <Button type="button" variant="secondary" className="h-8 flex-1" disabled={(affiliate.payoutDueCents ?? 0) <= 0} onClick={() => recordPayout(affiliate)}><HandCoins size={15} /> Pay</Button>
                 <Button type="button" variant="ghost" className="h-8 flex-1 text-red-600 hover:text-red-700" onClick={() => deleteAffiliate(affiliate)}><Trash2 size={15} /> Remove</Button>
               </div>
             </div>
           ))}
         </div>
 
-        <DataTable className="hidden md:block" columns={["Affiliate", "Code", "Type", "Status", "Revenue", "Rate", "Total paid", "Payout due", "Actions"]}>
+        <DataTable className="hidden md:block" columns={["Affiliate", "Code", "Type", "Status", "Revenue", "Rate", "Total paid", "Payout due", "Last paid", "Actions"]}>
           {filteredAffiliates.map((affiliate) => (
             <tr key={affiliate.id}>
               <Td className="font-medium text-slate-950">{affiliate.name}</Td>
@@ -275,9 +310,11 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
               <Td>{formatPercentOrNA(affiliate.payoutRatePercent)}</Td>
               <Td>{formatCurrencyOrNA(affiliate.totalPayoutCents)}</Td>
               <Td className="font-medium text-slate-950">{formatCurrencyOrNA(affiliate.payoutDueCents)}</Td>
+              <Td>{affiliate.lastPayoutAt}</Td>
               <Td>
                 <div className="flex gap-2">
                   <Button type="button" variant="secondary" className="h-8 px-2" onClick={() => editAffiliate(affiliate)}><Edit3 size={15} /></Button>
+                  <Button type="button" variant="secondary" className="h-8 px-2" disabled={(affiliate.payoutDueCents ?? 0) <= 0} onClick={() => recordPayout(affiliate)}><HandCoins size={15} /></Button>
                   <Button type="button" variant="ghost" className="h-8 px-2 text-red-600 hover:text-red-700" onClick={() => deleteAffiliate(affiliate)}><Trash2 size={15} /></Button>
                 </div>
               </Td>
