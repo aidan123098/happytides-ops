@@ -3,7 +3,7 @@ import { InventoryMovementType, InventoryStatus } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth";
 import { getLocalStore } from "@/lib/local-store";
-import { adjustOfflineInventory, createOfflineInventoryBatch, isDatabaseUnavailable } from "@/lib/offline-store";
+import { isDatabaseUnavailable } from "@/lib/offline-store";
 import { prisma } from "@/lib/prisma";
 import { getInventoryBatches } from "@/lib/services/operational-data";
 import { adjustInventory } from "@/lib/services/operations";
@@ -83,21 +83,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ batch: domainBatch ?? batch }, { status: 201 });
     } catch (error) {
       if (isDatabaseUnavailable(error)) {
-        const batch = createOfflineInventoryBatch({
-          productId: payload.productId,
-          quantityOnHand: payload.quantityOnHand,
-          reorderThreshold: payload.reorderThreshold ?? 10,
-          batchNumber: payload.batchNumber.trim(),
-          lotNumber: payload.lotNumber.trim(),
-          expirationDate: payload.expirationDate,
-          supplier: payload.supplier.trim(),
-          costPerVialCents: payload.costPerVialCents,
-          storageRequirements: payload.storageRequirements.trim(),
-          coaDocumentUrl: payload.coaDocumentUrl?.trim() || "N/A",
-          status: payload.status,
-          reason: payload.reason
-        }, actor);
-        return NextResponse.json({ batch }, { status: 201 });
+        return NextResponse.json({ error: "The shared database is unavailable, so the stock was not received. Try again in a moment." }, { status: 503 });
       }
       return NextResponse.json({ error: error instanceof Error ? error.message : "Inventory batch could not be received." }, { status: 400 });
     }
@@ -117,8 +103,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ batch: domainBatch ?? batch });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
-      const batch = adjustOfflineInventory(payload, actor);
-      return NextResponse.json({ batch });
+      return NextResponse.json({ error: "The shared database is unavailable, so the inventory change was not saved. Try again in a moment." }, { status: 503 });
     }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Inventory adjustment failed." }, { status: 400 });
   }

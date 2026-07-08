@@ -3,29 +3,26 @@ import { prisma } from "@/lib/prisma";
 import { getOperationalStore } from "@/lib/services/operational-data";
 
 const globalForLocalStore = globalThis as unknown as {
-  happytidesDatabaseUnavailable: boolean | undefined;
   happytidesWarnedAboutDatabaseFallback: boolean | undefined;
 };
 
 export async function getLocalStore() {
   if (!process.env.DATABASE_URL) {
-    globalForLocalStore.happytidesDatabaseUnavailable = true;
     return getOfflineStore();
   }
-
-  if (globalForLocalStore.happytidesDatabaseUnavailable) return getOfflineStore();
 
   try {
     await prisma.$queryRaw`SELECT 1`;
     return await getOperationalStore();
   } catch (error) {
-    globalForLocalStore.happytidesDatabaseUnavailable = true;
-    const expectedDemoFallback = !process.env.DATABASE_URL && isDatabaseUnavailable(error);
+    const expectedDemoFallback = isDatabaseUnavailable(error) && !process.env.VERCEL;
 
     if (!expectedDemoFallback && !globalForLocalStore.happytidesWarnedAboutDatabaseFallback) {
       globalForLocalStore.happytidesWarnedAboutDatabaseFallback = true;
-      console.warn("Database unavailable; using local seed data for read-only pages.", error);
+      console.warn("Database unavailable; refusing to serve stale seed data while DATABASE_URL is configured.", error);
     }
+
+    if (!expectedDemoFallback) throw error;
     return getOfflineStore();
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, ReceiptText, Trash2 } from "lucide-react";
 import Link from "next/link";
 import type { Affiliate, Customer, InventoryBatch, Product } from "@/types/domain";
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { productOptionLabel } from "@/lib/product-labels";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency } from "@/lib/utils";
 
 type ManualOrderFormProps = {
@@ -79,10 +80,12 @@ function newLineItem(): LineItem {
 }
 
 export function ManualOrderForm({ products, inventoryBatches, customers: initialCustomers, affiliates }: ManualOrderFormProps) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const realInitialCustomers = initialCustomers.filter((customer) => customer.id !== "cust_placeholder" && (customer.firstName !== "N/A" || customer.email !== "N/A" || customer.phone !== "N/A"));
   const realAffiliates = affiliates.filter((affiliate) => affiliate.id !== "aff_placeholder" && affiliate.name !== "N/A" && affiliate.code !== "N/A");
   const [customers, setCustomers] = useState(realInitialCustomers);
+  const [liveInventoryBatches, setLiveInventoryBatches] = useState(inventoryBatches);
   const [customerId, setCustomerId] = useState("");
   const [affiliateId, setAffiliateId] = useState("");
   const [customerForm, setCustomerForm] = useState<CustomerForm>(emptyCustomerForm);
@@ -94,15 +97,38 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   const [submitting, setSubmitting] = useState(false);
   const [savingCustomer, setSavingCustomer] = useState(false);
 
+  useLiveRefresh({
+    onRefresh: async () => {
+      const [customersResponse, inventoryResponse] = await Promise.all([
+        fetch("/api/customers", { cache: "no-store" }),
+        fetch("/api/inventory", { cache: "no-store" })
+      ]);
+
+      if (customersResponse.ok) {
+        const payload = await customersResponse.json().catch(() => null);
+        if (Array.isArray(payload?.customers)) {
+          setCustomers(payload.customers.filter((customer: Customer) => customer.id !== "cust_placeholder" && (customer.firstName !== "N/A" || customer.email !== "N/A" || customer.phone !== "N/A")));
+        }
+      }
+
+      if (inventoryResponse.ok) {
+        const payload = await inventoryResponse.json().catch(() => null);
+        if (Array.isArray(payload?.batches)) setLiveInventoryBatches(payload.batches);
+      }
+
+      router.refresh();
+    }
+  });
+
   const batchesByProductId = useMemo(() => {
     const grouped = new Map<string, InventoryBatch[]>();
 
-    for (const batch of inventoryBatches) {
+    for (const batch of liveInventoryBatches) {
       grouped.set(batch.productId, [...(grouped.get(batch.productId) ?? []), batch]);
     }
 
     return grouped;
-  }, [inventoryBatches]);
+  }, [liveInventoryBatches]);
 
   const enrichedItems = items.map((item) => {
     const product = products.find((candidate) => candidate.id === item.productId);

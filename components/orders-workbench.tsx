@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Edit3, Filter, Save, Trash2, X } from "lucide-react";
 import type { InventoryBatch, Order, Product } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
@@ -9,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { productOptionLabel } from "@/lib/product-labels";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency, formatCurrencyOrNA, formatNumber, formatNumberOrNA } from "@/lib/utils";
 
 type OrdersWorkbenchProps = {
@@ -69,6 +71,7 @@ function visibleOrders(orders: Order[]) {
 }
 
 export function OrdersWorkbench({ initialOrders, initialProducts, initialInventoryBatches }: OrdersWorkbenchProps) {
+  const router = useRouter();
   const [orders, setOrders] = useState<Order[]>(visibleOrders(initialOrders));
   const [inventoryBatches, setInventoryBatches] = useState(initialInventoryBatches);
   const [search, setSearch] = useState("");
@@ -82,6 +85,27 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   const [editCreatedAt, setEditCreatedAt] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [message, setMessage] = useState<{ tone: "green" | "amber" | "red"; text: string } | null>(null);
+
+  useLiveRefresh({
+    onRefresh: async () => {
+      const [ordersResponse, inventoryResponse] = await Promise.all([
+        fetch("/api/orders", { cache: "no-store" }),
+        fetch("/api/inventory", { cache: "no-store" })
+      ]);
+
+      if (ordersResponse.ok) {
+        const payload = await ordersResponse.json().catch(() => null);
+        if (Array.isArray(payload?.orders)) setOrders(visibleOrders(payload.orders));
+      }
+
+      if (inventoryResponse.ok) {
+        const payload = await inventoryResponse.json().catch(() => null);
+        if (Array.isArray(payload?.batches)) setInventoryBatches(payload.batches);
+      }
+
+      router.refresh();
+    }
+  });
 
   const batchesByProductId = useMemo(() => {
     const grouped = new Map<string, InventoryBatch[]>();

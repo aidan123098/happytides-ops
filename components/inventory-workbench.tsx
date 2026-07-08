@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency, formatNumberOrNA } from "@/lib/utils";
 
 type InventoryWorkbenchProps = {
@@ -61,6 +62,7 @@ function signalTone(signal: ReorderSignal) {
 export function InventoryWorkbench({ initialBatches, products, orders }: InventoryWorkbenchProps) {
   const router = useRouter();
   const [batches, setBatches] = useState(initialBatches);
+  const [liveOrders, setLiveOrders] = useState(orders);
   const [receiveForm, setReceiveForm] = useState<ReceiveBatchForm>({
     productId: products[0]?.id ?? "",
     quantityOnHand: "0",
@@ -86,6 +88,28 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
   const [showReceive, setShowReceive] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  useLiveRefresh({
+    onRefresh: async () => {
+      const [inventoryResponse, ordersResponse] = await Promise.all([
+        fetch("/api/inventory", { cache: "no-store" }),
+        fetch("/api/orders", { cache: "no-store" })
+      ]);
+
+      if (inventoryResponse.ok) {
+        const payload = await inventoryResponse.json().catch(() => null);
+        if (Array.isArray(payload?.batches)) setBatches(payload.batches);
+      }
+
+      if (ordersResponse.ok) {
+        const payload = await ordersResponse.json().catch(() => null);
+        if (Array.isArray(payload?.orders)) setLiveOrders(payload.orders);
+      }
+
+      router.refresh();
+    }
+  });
+
   const selectedBatch = batches.find((batch) => batch.id === adjustBatchId);
   const suppliers = [...new Set(batches.map((batch) => batch.supplier))];
   const receiveReady = receiveForm.productId && receiveForm.batchNumber.trim() && receiveForm.lotNumber.trim() && receiveForm.supplier.trim() && receiveForm.storageRequirements.trim() && receiveForm.costPerVial.trim() && Number.parseInt(receiveForm.quantityOnHand, 10) >= 0 && dollarsToCents(receiveForm.costPerVial) >= 0 && receiveForm.reason.trim().length >= 4;
@@ -100,7 +124,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
     const now = Date.now();
     const windowDays = 30;
     const windowStart = now - windowDays * 24 * 60 * 60 * 1000;
-    const paidOrders = orders.filter((order) => {
+    const paidOrders = liveOrders.filter((order) => {
       const createdAt = new Date(order.createdAt).getTime();
       return order.orderNumber !== "N/A" && order.paymentStatus === "paid" && Number.isFinite(createdAt) && createdAt >= windowStart;
     });
@@ -133,7 +157,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
         };
       })
       .sort((left, right) => (left.daysRemaining ?? 9999) - (right.daysRemaining ?? 9999));
-  }, [batches, orders, products]);
+  }, [batches, liveOrders, products]);
 
   async function applyAdjustment() {
     const quantityDelta = Number.parseInt(adjustDelta, 10);

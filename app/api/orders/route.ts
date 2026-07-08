@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
-import { cancelOfflineOrder, createOfflineOrder, isDatabaseUnavailable, updateOfflineOrder } from "@/lib/offline-store";
+import { isDatabaseUnavailable } from "@/lib/offline-store";
 import { getLocalStore } from "@/lib/local-store";
 import { cancelOrder, createOrder, updateOrder } from "@/lib/services/operations";
 import { orderInputSchema, orderUpdateSchema } from "@/lib/validation";
@@ -38,8 +38,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ order: await domainOrder(order.id) }, { status: 201 });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
-      const order = createOfflineOrder(payload, actor);
-      return NextResponse.json({ order }, { status: 201 });
+      return NextResponse.json({ error: "The shared database is unavailable, so the order was not saved. Try again in a moment." }, { status: 503 });
     }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Order could not be recorded." }, { status: 400 });
   }
@@ -60,9 +59,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ order: await domainOrder(order.id) });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
-      const order = updateOfflineOrder(payload.orderId, payload, actor);
-      if (!order) return NextResponse.json({ error: "Order not found." }, { status: 404 });
-      return NextResponse.json({ order });
+      return NextResponse.json({ error: "The shared database is unavailable, so the order was not updated. Try again in a moment." }, { status: 503 });
     }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Order could not be updated." }, { status: 400 });
   }
@@ -81,9 +78,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ order });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
-      const order = cancelOfflineOrder(orderId, actor);
-      if (!order) return NextResponse.json({ error: "Order not found." }, { status: 404 });
-      return NextResponse.json({ order });
+      return NextResponse.json({ error: "The shared database is unavailable, so the order was not removed. Try again in a moment." }, { status: 503 });
     }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Order could not be canceled." }, { status: 400 });
   }

@@ -2,12 +2,14 @@
 
 import { Edit3, Plus, Save, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Customer } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrencyOrNA, formatNumberOrNA } from "@/lib/utils";
 
 type CustomerForm = {
@@ -99,6 +101,7 @@ function formPayload(form: CustomerForm) {
 }
 
 export function CustomersWorkbench({ customers: initialCustomers }: { customers: Customer[] }) {
+  const router = useRouter();
   const [customers, setCustomers] = useState(initialCustomers.filter(isRealCustomer));
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -110,6 +113,17 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
   const [form, setForm] = useState<CustomerForm>(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useLiveRefresh({
+    onRefresh: async () => {
+      const response = await fetch("/api/customers", { cache: "no-store" });
+      if (response.ok) {
+        const payload = await response.json().catch(() => null);
+        if (Array.isArray(payload?.customers)) setCustomers(payload.customers.filter(isRealCustomer));
+      }
+      router.refresh();
+    }
+  });
 
   const filteredCustomers = useMemo(() => {
     return customers.filter((customer) => {

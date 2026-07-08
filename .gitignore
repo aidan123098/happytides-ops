@@ -13,3 +13,6 @@ prisma/dev.db
 outputs
 work
 tsconfig.tsbuildinfo
+.env
+.env.local
+.env.*.local
