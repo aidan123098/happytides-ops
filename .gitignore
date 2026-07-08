@@ -1,7 +1,8 @@
 node_modules
 .next
 .env
-.env*.local
+.env.local
+.env.*.local
 .happytides-local-store.json
 dist
 coverage
@@ -13,6 +14,3 @@ prisma/dev.db
 outputs
 work
 tsconfig.tsbuildinfo
-.env
-.env.local
-.env.*.local

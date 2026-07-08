@@ -125,7 +125,7 @@ function isDatabaseUnavailable(error: unknown) {
 }
 
 function canUseOfflineDevAuth() {
-  return process.env.NODE_ENV !== "production";
+  return process.env.NODE_ENV !== "production" && !process.env.DATABASE_URL;
 }
 
 function canUseHostedDemoAuth() {
