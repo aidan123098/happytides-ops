@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { CustomerSource, CustomerStatus } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth";
-import { getLocalStore } from "@/lib/local-store";
 import { isDatabaseUnavailable } from "@/lib/offline-store";
 import { prisma } from "@/lib/prisma";
+import { getCustomerById, getCustomers, invalidateOperationalDataCache } from "@/lib/services/operational-data";
 import { customerInputSchema, customerUpdateSchema } from "@/lib/validation";
 
 const sourceMap = {
@@ -30,12 +30,12 @@ function validationError(error: unknown) {
 }
 
 async function domainCustomer(id: string) {
-  return (await getLocalStore()).customers.find((customer) => customer.id === id);
+  return getCustomerById(id);
 }
 
 export async function GET() {
   await requirePermission("customers:read");
-  return NextResponse.json({ customers: (await getLocalStore()).customers });
+  return NextResponse.json({ customers: await getCustomers() });
 }
 
 export async function POST(request: Request) {
@@ -67,6 +67,7 @@ export async function POST(request: Request) {
       return created;
     });
 
+    invalidateOperationalDataCache();
     return NextResponse.json({ customer: await domainCustomer(customer.id) }, { status: 201 });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
@@ -117,6 +118,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
 
+    invalidateOperationalDataCache();
     return NextResponse.json({ customer: await domainCustomer(updated.id) });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
@@ -148,6 +150,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
 
+    invalidateOperationalDataCache();
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {

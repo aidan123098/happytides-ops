@@ -94,6 +94,7 @@ export function ProductCreateForm({ categories }: ProductCreateFormProps) {
 
   async function saveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
 
     if (invalidForm) {
       setMessage({ tone: "red", text: "Name, SKU, category, strength, and price are required." });
@@ -116,7 +117,6 @@ export function ProductCreateForm({ categories }: ProductCreateFormProps) {
       }
 
       router.push("/products");
-      router.refresh();
     } catch (caught) {
       setMessage({ tone: "red", text: caught instanceof Error ? caught.message : "Product could not be saved." });
     } finally {

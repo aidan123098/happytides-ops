@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth";
-import { getLocalStore } from "@/lib/local-store";
 import { createOfflineAffiliate, deleteOfflineAffiliate, isDatabaseUnavailable, updateOfflineAffiliate } from "@/lib/offline-store";
 import { prisma } from "@/lib/prisma";
+import { getAffiliateById, getAffiliates, invalidateOperationalDataCache } from "@/lib/services/operational-data";
 import { affiliateInputSchema, affiliateUpdateSchema } from "@/lib/validation";
 
 function validationError(error: unknown) {
@@ -19,12 +19,12 @@ function payoutDueCents(revenueGeneratedCents: number, payoutRatePercent: number
 }
 
 async function domainAffiliate(id: string) {
-  return (await getLocalStore()).affiliates.find((affiliate) => affiliate.id === id);
+  return getAffiliateById(id);
 }
 
 export async function GET() {
   await requirePermission("reports:read");
-  return NextResponse.json({ affiliates: (await getLocalStore()).affiliates });
+  return NextResponse.json({ affiliates: await getAffiliates() });
 }
 
 export async function POST(request: Request) {
@@ -60,6 +60,7 @@ export async function POST(request: Request) {
       return created;
     });
 
+    invalidateOperationalDataCache();
     return NextResponse.json({ affiliate: await domainAffiliate(affiliate.id) }, { status: 201 });
   } catch (error) {
     if (!isDatabaseUnavailable(error)) throw error;
@@ -139,6 +140,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Affiliate not found" }, { status: 404 });
   }
 
+  invalidateOperationalDataCache();
   return NextResponse.json({ affiliate: await domainAffiliate(updated.id) });
 }
 
@@ -169,5 +171,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Affiliate not found" }, { status: 404 });
   }
 
+  invalidateOperationalDataCache();
   return NextResponse.json({ ok: true });
 }

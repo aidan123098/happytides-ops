@@ -25,7 +25,7 @@ type CustomerForm = {
 };
 
 const customerTypes: Customer["customerType"][] = ["consumer", "wholesaler"];
-const customerSources: Customer["source"][] = ["walk-in", "referral", "Instagram", "website", "other"];
+const customerSources: Customer["source"][] = ["referral", "Instagram", "website", "other"];
 const customerStatuses: Customer["status"][] = ["new", "returning", "inactive"];
 
 const emptyForm: CustomerForm = {
@@ -34,7 +34,7 @@ const emptyForm: CustomerForm = {
   email: "",
   phone: "",
   customerType: "consumer",
-  source: "walk-in",
+  source: "referral",
   status: "new",
   smsConsent: false,
   emailConsent: false,
@@ -54,6 +54,14 @@ function sourceLabel(source: Customer["source"]) {
 
 function statusLabel(status: Customer["status"]) {
   return status[0].toUpperCase() + status.slice(1);
+}
+
+function RequiredLabel({ children }: { children: string }) {
+  return (
+    <span className="text-xs font-semibold uppercase text-slate-500">
+      {children} <span className="text-red-600">*</span>
+    </span>
+  );
 }
 
 function formPayload(form: CustomerForm) {
@@ -80,6 +88,8 @@ export function CustomerCreateForm() {
 
   async function saveCustomer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
+
     setSaving(true);
     setError("");
 
@@ -96,7 +106,6 @@ export function CustomerCreateForm() {
       }
 
       router.push("/customers");
-      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save customer");
     } finally {
@@ -124,11 +133,11 @@ export function CustomerCreateForm() {
           <form onSubmit={saveCustomer} className="space-y-4">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
               <label>
-                <span className="text-xs font-semibold uppercase text-slate-500">First</span>
+                <RequiredLabel>First</RequiredLabel>
                 <Input required className="mt-1 bg-white" value={form.firstName} onChange={(event) => setForm({ ...form, firstName: event.target.value })} />
               </label>
               <label>
-                <span className="text-xs font-semibold uppercase text-slate-500">Last</span>
+                <RequiredLabel>Last</RequiredLabel>
                 <Input required className="mt-1 bg-white" value={form.lastName} onChange={(event) => setForm({ ...form, lastName: event.target.value })} />
               </label>
               <label className="xl:col-span-2">
@@ -140,20 +149,20 @@ export function CustomerCreateForm() {
                 <Input className="mt-1 bg-white" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
               </label>
               <label>
-                <span className="text-xs font-semibold uppercase text-slate-500">Type</span>
-                <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={form.customerType} onChange={(event) => setForm({ ...form, customerType: event.target.value as Customer["customerType"] })}>
+                <RequiredLabel>Type</RequiredLabel>
+                <select required className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={form.customerType} onChange={(event) => setForm({ ...form, customerType: event.target.value as Customer["customerType"] })}>
                   {customerTypes.map((item) => <option key={item} value={item}>{typeLabel(item)}</option>)}
                 </select>
               </label>
               <label>
-                <span className="text-xs font-semibold uppercase text-slate-500">Source</span>
-                <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value as Customer["source"] })}>
+                <RequiredLabel>Source</RequiredLabel>
+                <select required className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value as Customer["source"] })}>
                   {customerSources.map((item) => <option key={item} value={item}>{sourceLabel(item)}</option>)}
                 </select>
               </label>
               <label>
-                <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
-                <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as Customer["status"] })}>
+                <RequiredLabel>Status</RequiredLabel>
+                <select required className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as Customer["status"] })}>
                   {customerStatuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}
                 </select>
               </label>

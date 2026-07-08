@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { Edit3, Save, Search, Trash2, UserPlus, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { Customer } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
@@ -102,7 +101,6 @@ function formPayload(form: CustomerForm) {
 }
 
 export function CustomersWorkbench({ customers: initialCustomers }: { customers: Customer[] }) {
-  const router = useRouter();
   const [customers, setCustomers] = useState(initialCustomers.filter(isRealCustomer));
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -113,6 +111,7 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<CustomerForm>(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useLiveRefresh({
@@ -122,7 +121,6 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
         const payload = await response.json().catch(() => null);
         if (Array.isArray(payload?.customers)) setCustomers(payload.customers.filter(isRealCustomer));
       }
-      router.refresh();
     }
   });
 
@@ -163,6 +161,8 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
 
   async function saveCustomer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSaving) return;
+
     setIsSaving(true);
     setError("");
 
@@ -194,18 +194,28 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
   }
 
   async function deleteCustomer(customer: Customer) {
+    if (deletingCustomerId || isSaving) return;
     if (!window.confirm(`Remove ${customer.firstName} ${customer.lastName}?`)) return;
+
+    setDeletingCustomerId(customer.id);
     setError("");
-    const response = await fetch(`/api/customers?customerId=${encodeURIComponent(customer.id)}`, { method: "DELETE" });
-    const data = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
-      setError(data.error || "Could not remove customer");
-      return;
+    try {
+      const response = await fetch(`/api/customers?customerId=${encodeURIComponent(customer.id)}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setError(data.error || "Could not remove customer");
+        return;
+      }
+
+      setCustomers((current) => current.filter((item) => item.id !== customer.id));
+      if (editingId === customer.id) resetForm();
+    } catch {
+      setError("Could not remove customer. Check the local dev server and try again.");
+    } finally {
+      setDeletingCustomerId(null);
     }
-
-    setCustomers((current) => current.filter((item) => item.id !== customer.id));
-    if (editingId === customer.id) resetForm();
   }
 
   return (
@@ -279,9 +289,9 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
               </label>
               <Button type="submit" disabled={isSaving}>
                 <Save size={16} />
-                {editingId ? "Save customer" : "Create customer"}
+                {isSaving ? "Saving..." : editingId ? "Save customer" : "Create customer"}
               </Button>
-              <Button type="button" variant="secondary" onClick={resetForm}>
+              <Button type="button" variant="secondary" onClick={resetForm} disabled={isSaving}>
                 <X size={16} />
                 Cancel
               </Button>
@@ -333,7 +343,10 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
         </div>
 
         <div className="space-y-3 md:hidden">
-          {filteredCustomers.map((customer) => (
+          {filteredCustomers.map((customer) => {
+            const deletingThisCustomer = deletingCustomerId === customer.id;
+
+            return (
             <div key={customer.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -355,15 +368,19 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
               {customer.tags.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">{customer.tags.map((tag) => <Badge key={tag} tone="slate">{tag}</Badge>)}</div> : null}
               <div className="mt-3 text-sm text-slate-600">{customer.notes}</div>
               <div className="mt-3 flex gap-2">
-                <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => editCustomer(customer)}><Edit3 size={15} /> Edit</Button>
-                <Button type="button" variant="ghost" className="h-8 flex-1 text-red-600 hover:text-red-700" onClick={() => deleteCustomer(customer)}><Trash2 size={15} /> Remove</Button>
+                <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => editCustomer(customer)} disabled={deletingThisCustomer}><Edit3 size={15} /> Edit</Button>
+                <Button type="button" variant="ghost" className="h-8 flex-1 text-red-600 hover:text-red-700" onClick={() => deleteCustomer(customer)} disabled={deletingThisCustomer}><Trash2 size={15} /> {deletingThisCustomer ? "Removing..." : "Remove"}</Button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <DataTable className="hidden md:block" columns={["Customer", "Status", "Type", "Contact", "Source", "Consent", "Spend", "Favorite", "Actions"]}>
-          {filteredCustomers.map((customer) => (
+          {filteredCustomers.map((customer) => {
+            const deletingThisCustomer = deletingCustomerId === customer.id;
+
+            return (
             <tr key={customer.id}>
               <Td>
                 <div className="font-medium text-slate-950">{customer.firstName} {customer.lastName}</div>
@@ -379,12 +396,13 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
               <Td><div>{customer.favoriteProduct}</div><div className="text-xs text-slate-500">{customer.notes}</div></Td>
               <Td>
                 <div className="flex gap-2">
-                  <Button type="button" variant="secondary" className="h-8 px-2" onClick={() => editCustomer(customer)}><Edit3 size={15} /></Button>
-                  <Button type="button" variant="ghost" className="h-8 px-2 text-red-600 hover:text-red-700" onClick={() => deleteCustomer(customer)}><Trash2 size={15} /></Button>
+                  <Button type="button" variant="secondary" className="h-8 px-2" onClick={() => editCustomer(customer)} disabled={deletingThisCustomer}><Edit3 size={15} /></Button>
+                  <Button type="button" variant="ghost" className="h-8 px-2 text-red-600 hover:text-red-700" onClick={() => deleteCustomer(customer)} disabled={deletingThisCustomer}><Trash2 size={15} /></Button>
                 </div>
               </Td>
             </tr>
-          ))}
+            );
+          })}
         </DataTable>
         {filteredCustomers.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">

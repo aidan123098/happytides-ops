@@ -108,6 +108,7 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [archivingProductId, setArchivingProductId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "green" | "amber" | "red"; text: string } | null>(null);
 
   const categories = useMemo(() => [...new Set(products.map((product) => product.category))].sort(), [products]);
@@ -151,6 +152,7 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
 
   async function saveProduct(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSaving) return;
 
     if (invalidForm) {
       setMessage({ tone: "red", text: "Name, SKU, category, strength, and price are required." });
@@ -188,20 +190,29 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
   }
 
   async function archiveProduct(product: Product) {
+    if (archivingProductId || isSaving) return;
     if (!window.confirm(`Archive ${product.sku}? Existing order history will stay intact.`)) return;
 
-    setMessage(null);
-    const response = await fetch(`/api/products?productId=${encodeURIComponent(product.id)}`, { method: "DELETE" });
-    const payload = await response.json().catch(() => ({}));
+    setArchivingProductId(product.id);
+    setMessage({ tone: "amber", text: `Archiving ${product.sku}...` });
 
-    if (!response.ok) {
-      setMessage({ tone: "red", text: payload.error || "Product could not be archived." });
-      return;
+    try {
+      const response = await fetch(`/api/products?productId=${encodeURIComponent(product.id)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setMessage({ tone: "red", text: payload.error || "Product could not be archived." });
+        return;
+      }
+
+      setProducts((current) => current.filter((item) => item.id !== product.id));
+      if (editingProductId === product.id) resetForm();
+      setMessage({ tone: "green", text: `${product.sku} archived.` });
+    } catch {
+      setMessage({ tone: "red", text: "Product could not be archived. Check the local dev server and try again." });
+    } finally {
+      setArchivingProductId(null);
     }
-
-    setProducts((current) => current.filter((item) => item.id !== product.id));
-    if (editingProductId === product.id) resetForm();
-    setMessage({ tone: "green", text: `${product.sku} archived.` });
   }
 
   return (
@@ -299,13 +310,13 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
                 </label>
               </div>
               <div className="flex gap-2">
-                <Button type="button" variant="ghost" onClick={resetForm}>
+                <Button type="button" variant="ghost" onClick={resetForm} disabled={isSaving}>
                   <X size={15} />
                   Cancel
                 </Button>
                 <Button type="submit" disabled={isSaving || invalidForm}>
                   <Save size={15} />
-                  {editingProductId ? "Save SKU" : "Create SKU"}
+                  {isSaving ? "Saving..." : editingProductId ? "Save SKU" : "Create SKU"}
                 </Button>
               </div>
             </div>
@@ -344,7 +355,10 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
         </div>
 
         <div className="space-y-3 md:hidden">
-          {filteredProducts.map((product) => (
+          {filteredProducts.map((product) => {
+            const archivingThisProduct = archivingProductId === product.id;
+
+            return (
             <div key={product.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -363,15 +377,19 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
                 <div className="rounded-md bg-slate-50 p-2"><div className="text-xs text-slate-500">COA</div><div className="font-semibold text-slate-950">{coaLabel(product)}</div></div>
               </div>
               <div className="mt-3 flex gap-2">
-                <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => startEdit(product)}><Edit3 size={15} /> Edit</Button>
-                <Button type="button" variant="ghost" className="h-8 flex-1 text-red-600 hover:text-red-700" onClick={() => archiveProduct(product)}><Trash2 size={15} /> Archive</Button>
+                <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => startEdit(product)} disabled={archivingThisProduct}><Edit3 size={15} /> Edit</Button>
+                <Button type="button" variant="ghost" className="h-8 flex-1 text-red-600 hover:text-red-700" onClick={() => archiveProduct(product)} disabled={archivingThisProduct}><Trash2 size={15} /> {archivingThisProduct ? "Archiving..." : "Archive"}</Button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <DataTable className="hidden md:block" columns={["Product", "SKU", "Category", "Strength", "Price", "COGS", "Margin", "Week", "COA", "Status", "Actions"]}>
-          {filteredProducts.map((product) => (
+          {filteredProducts.map((product) => {
+            const archivingThisProduct = archivingProductId === product.id;
+
+            return (
             <tr key={product.id}>
               <Td>
                 <div className="flex items-center gap-3">
@@ -403,12 +421,13 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
               <Td><Badge tone={product.active ? "green" : "slate"}>{product.active ? "Active" : "Inactive"}</Badge></Td>
               <Td>
                 <div className="flex gap-2">
-                  <Button type="button" variant="secondary" className="h-8 px-2" onClick={() => startEdit(product)}><Edit3 size={15} /></Button>
-                  <Button type="button" variant="ghost" className="h-8 px-2 text-red-600 hover:text-red-700" onClick={() => archiveProduct(product)}><Trash2 size={15} /></Button>
+                  <Button type="button" variant="secondary" className="h-8 px-2" onClick={() => startEdit(product)} disabled={archivingThisProduct}><Edit3 size={15} /></Button>
+                  <Button type="button" variant="ghost" className="h-8 px-2 text-red-600 hover:text-red-700" onClick={() => archiveProduct(product)} disabled={archivingThisProduct}><Trash2 size={15} /></Button>
                 </div>
               </Td>
             </tr>
-          ))}
+            );
+          })}
         </DataTable>
 
         {filteredProducts.length === 0 ? (

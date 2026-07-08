@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, ReceiptText, Trash2 } from "lucide-react";
 import Link from "next/link";
 import type { Affiliate, Customer, InventoryBatch, Product } from "@/types/domain";
@@ -80,7 +80,6 @@ function newLineItem(): LineItem {
 }
 
 export function ManualOrderForm({ products, inventoryBatches, customers: initialCustomers, affiliates }: ManualOrderFormProps) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const realInitialCustomers = initialCustomers.filter((customer) => customer.id !== "cust_placeholder" && (customer.firstName !== "N/A" || customer.email !== "N/A" || customer.phone !== "N/A"));
   const realAffiliates = affiliates.filter((affiliate) => affiliate.id !== "aff_placeholder" && affiliate.name !== "N/A" && affiliate.code !== "N/A");
@@ -115,8 +114,6 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
         const payload = await inventoryResponse.json().catch(() => null);
         if (Array.isArray(payload?.batches)) setLiveInventoryBatches(payload.batches);
       }
-
-      router.refresh();
     }
   });
 
@@ -232,6 +229,8 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   }
 
   async function submitOrder() {
+    if (submitting) return;
+
     setStatus(null);
 
     if (invalidItem) {
@@ -251,6 +250,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
     }
 
     setSubmitting(true);
+    setStatus({ tone: "amber", message: "Recording order..." });
 
     try {
       const response = await fetch("/api/orders", {

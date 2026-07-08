@@ -35,6 +35,8 @@ export type SessionUser = {
 };
 
 const tokenPrefix = "hts_";
+const sessionCacheTtlMs = 10 * 1000;
+const activityTouchIntervalMs = 5 * 60 * 1000;
 const offlineDevUserId = "dev-offline-owner";
 const offlineDevToken = `${tokenPrefix}offline_dev`;
 const offlineDevUser: SessionUser = {
@@ -51,6 +53,16 @@ const hostedDemoUser: SessionUser = {
   email: hostedDemoEmail,
   roles: ["OWNER" as RoleName]
 };
+
+const globalForAuth = globalThis as unknown as {
+  happytidesSessionCache: Map<string, { user: SessionUser; cachedAt: number }> | undefined;
+};
+
+const sessionCache = globalForAuth.happytidesSessionCache ?? new Map<string, { user: SessionUser; cachedAt: number }>();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForAuth.happytidesSessionCache = sessionCache;
+}
 
 const rolePermissions: Record<RoleName, Permission[]> = {
   OWNER: [
@@ -147,6 +159,10 @@ function publicUser(user: {
   };
 }
 
+function shouldTouchActivity(lastActiveAt: Date | null | undefined) {
+  return !lastActiveAt || Date.now() - lastActiveAt.getTime() >= activityTouchIntervalMs;
+}
+
 export async function authenticateStaffUser(email: string, password: string, request?: Request): Promise<SessionUser | null> {
   const normalizedEmail = email.trim().toLowerCase();
 
@@ -217,14 +233,22 @@ export async function createSessionToken(user: SessionUser, request?: Request) {
   return token;
 }
 
-export async function verifySessionToken(token: string | undefined): Promise<SessionUser | null> {
+export async function verifySessionToken(token: string | undefined, options: { touchActivity?: boolean } = {}): Promise<SessionUser | null> {
+  const touchActivity = options.touchActivity ?? true;
+
   if (!token || !token.startsWith(tokenPrefix)) return null;
   if (canUseOfflineDevAuth() && token === offlineDevToken) return offlineDevUser;
   if (canUseHostedDemoAuth() && token === offlineDevToken) return hostedDemoUser;
+  const tokenHash = hashToken(token);
+  const cached = sessionCache.get(tokenHash);
+
+  if (cached && Date.now() - cached.cachedAt < sessionCacheTtlMs) {
+    return cached.user;
+  }
 
   try {
     const session = await prisma.session.findUnique({
-      where: { tokenHash: hashToken(token) },
+      where: { tokenHash },
       include: {
         user: {
           include: { roles: { include: { role: true } } }
@@ -240,12 +264,17 @@ export async function verifySessionToken(token: string | undefined): Promise<Ses
       return null;
     }
 
-    await prisma.user.update({
-      where: { id: session.userId },
-      data: { lastActiveAt: new Date() }
-    });
+    if (touchActivity && shouldTouchActivity(session.user.lastActiveAt)) {
+      await prisma.user.update({
+        where: { id: session.userId },
+        data: { lastActiveAt: new Date() }
+      });
+    }
 
-    return publicUser(session.user);
+    const user = publicUser(session.user);
+    sessionCache.set(tokenHash, { user, cachedAt: Date.now() });
+
+    return user;
   } catch (error) {
     if (canUseOfflineDevAuth() && isDatabaseUnavailable(error)) return offlineDevUser;
     throw error;
@@ -256,6 +285,7 @@ export async function revokeSessionToken(token: string | undefined) {
   if (!token) return;
   if (canUseOfflineDevAuth() && token === offlineDevToken) return;
   if (canUseHostedDemoAuth() && token === offlineDevToken) return;
+  sessionCache.delete(hashToken(token));
 
   try {
     await prisma.session.updateMany({
@@ -267,10 +297,10 @@ export async function revokeSessionToken(token: string | undefined) {
   }
 }
 
-export async function getCurrentUser(): Promise<SessionUser | null> {
+export async function getCurrentUser(options: { touchActivity?: boolean } = {}): Promise<SessionUser | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  const user = await verifySessionToken(token);
+  const user = await verifySessionToken(token, options);
 
   if (!user && canUseOfflineDevAuth() && token) {
     return offlineDevUser;
@@ -283,8 +313,8 @@ export function hasPermission(user: SessionUser, permission: Permission) {
   return user.roles.some((role) => rolePermissions[role]?.includes(permission));
 }
 
-export async function requirePermission(permission: Permission) {
-  const user = await getCurrentUser();
+export async function requirePermission(permission: Permission, options: { touchActivity?: boolean } = {}) {
+  const user = await getCurrentUser(options);
 
   if (!user || !hasPermission(user, permission)) {
     throw new Error(`Permission denied: ${permission}`);

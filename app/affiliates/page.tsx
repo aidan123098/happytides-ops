@@ -3,13 +3,13 @@ import { BadgeDollarSign, Clock3, HandCoins, Handshake, Plus, WalletCards } from
 import { AffiliatesWorkbench } from "@/components/affiliates-workbench";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
-import { getLocalStore } from "@/lib/local-store";
+import { getAffiliates } from "@/lib/services/operational-data";
 import { formatCurrency, formatCurrencyOrNA, formatNumber, formatNumberOrNA } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function AffiliatesPage() {
-  const { affiliates } = await getLocalStore();
+  const affiliates = await getAffiliates();
   const revenueGeneratedCents = affiliates.reduce((sum, affiliate) => sum + (affiliate.revenueGeneratedCents ?? 0), 0);
   const payoutDueCents = affiliates.reduce((sum, affiliate) => sum + (affiliate.payoutDueCents ?? 0), 0);
   const totalPayoutCents = affiliates.reduce((sum, affiliate) => sum + (affiliate.totalPayoutCents ?? 0), 0);

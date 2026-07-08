@@ -63,7 +63,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
               className="mt-2"
               id="email"
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="aidan@happytides.co"
+              placeholder="name@happytides.co"
               required
               type="email"
               value={email}

@@ -3,13 +3,13 @@ import { CheckCircle2, ClipboardList, PackageCheck, Plus, ReceiptText, Truck } f
 import { MetricCard } from "@/components/metric-card";
 import { OrdersWorkbench } from "@/components/orders-workbench";
 import { PageHeader } from "@/components/page-header";
-import { getLocalStore } from "@/lib/local-store";
+import { getInventoryBatches, getOrders, getProducts } from "@/lib/services/operational-data";
 import { formatNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrdersPage() {
-  const { inventoryBatches, orders, products } = await getLocalStore();
+  const [inventoryBatches, orders, products] = await Promise.all([getInventoryBatches(), getOrders(), getProducts()]);
   const visibleOrders = orders.filter((order) => order.orderNumber !== "N/A" && order.paymentStatus !== "canceled" && order.fulfillmentStatus !== "canceled");
   const now = new Date();
   const todayOrders = visibleOrders.filter((order) => {

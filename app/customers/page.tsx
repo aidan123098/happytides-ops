@@ -5,7 +5,7 @@ import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getLocalStore } from "@/lib/local-store";
+import { getCustomers } from "@/lib/services/operational-data";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +15,8 @@ function isRealCustomer(customer: { id: string; firstName: string; email: string
 }
 
 export default async function CustomersPage() {
-  const { customers } = await getLocalStore();
+  const customers = await getCustomers();
   const realCustomers = customers.filter(isRealCustomer);
-  const totalSpendCents = realCustomers.reduce((sum, customer) => sum + customer.totalSpendCents, 0);
   const repeatCustomers = realCustomers.filter((customer) => customer.orderCount > 1).length;
   const consentReady = realCustomers.filter((customer) => customer.smsConsent || customer.emailConsent).length;
   const wholesaleCustomers = realCustomers.filter((customer) => customer.customerType === "wholesaler").length;
@@ -60,9 +59,8 @@ export default async function CustomersPage() {
         }
       />
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <MetricCard title="Customers" value={formatNumber(realCustomers.length)} detail={`${formatNumber(repeatCustomers)} repeat buyers`} icon={UsersRound} tone="blue" />
-        <MetricCard title="Customer Revenue" value={formatCurrency(totalSpendCents)} detail="Lifetime spend in CRM records" icon={DollarSign} tone="green" featured />
         <MetricCard title="Consent Ready" value={formatNumber(consentReady)} detail="SMS or email allowed" icon={MessageCircle} tone={consentReady > 0 ? "blue" : "amber"} />
         <MetricCard title="Wholesale" value={formatNumber(wholesaleCustomers)} detail="Wholesale customer records" icon={Store} tone="amber" />
       </section>

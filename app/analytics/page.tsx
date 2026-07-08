@@ -20,7 +20,7 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAnalyticsSummaryFromStore } from "@/lib/live-metrics";
-import { getLocalStore } from "@/lib/local-store";
+import { getAnalyticsStore } from "@/lib/services/operational-data";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ function productSignal(product: { unitsSoldWeek: number }) {
 }
 
 export default async function AnalyticsPage() {
-  const summary = getAnalyticsSummaryFromStore(await getLocalStore());
+  const summary = getAnalyticsSummaryFromStore(await getAnalyticsStore());
   const productsToWatch = summary.products
     .filter((product) => product.unitsSoldWeek > 0 || product.revenueWeekCents > 0)
     .sort((left, right) => right.unitsSoldWeek - left.unitsSoldWeek || right.revenueWeekCents - left.revenueWeekCents)

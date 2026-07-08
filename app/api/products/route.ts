@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth";
-import { getLocalStore } from "@/lib/local-store";
 import { createOfflineProduct, deleteOfflineProduct, isDatabaseUnavailable, updateOfflineProduct } from "@/lib/offline-store";
 import { prisma } from "@/lib/prisma";
+import { getProductById, getProducts, invalidateOperationalDataCache } from "@/lib/services/operational-data";
 import { productInputSchema, productUpdateSchema } from "@/lib/validation";
 
 function slugify(value: string) {
@@ -17,12 +17,12 @@ function validationError(error: unknown) {
 }
 
 async function domainProduct(id: string) {
-  return (await getLocalStore()).products.find((product) => product.id === id);
+  return getProductById(id);
 }
 
 export async function GET() {
   await requirePermission("dashboard:read");
-  return NextResponse.json({ products: (await getLocalStore()).products });
+  return NextResponse.json({ products: await getProducts() });
 }
 
 export async function POST(request: Request) {
@@ -67,6 +67,7 @@ export async function POST(request: Request) {
       return created;
     });
 
+    invalidateOperationalDataCache();
     return NextResponse.json({ product: await domainProduct(product.id) }, { status: 201 });
   } catch (error) {
     if (!isDatabaseUnavailable(error)) throw error;
@@ -166,6 +167,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Product not found" }, { status: 404 });
   }
 
+  invalidateOperationalDataCache();
   return NextResponse.json({ product: await domainProduct(updated.id) });
 }
 
@@ -196,5 +198,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Product not found" }, { status: 404 });
   }
 
+  invalidateOperationalDataCache();
   return NextResponse.json({ ok: true });
 }

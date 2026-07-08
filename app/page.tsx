@@ -20,7 +20,7 @@ import { MetricCard } from "@/components/metric-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDashboardData, getDerivedCustomers } from "@/lib/live-metrics";
-import { getLocalStore } from "@/lib/local-store";
+import { getAnalyticsStore } from "@/lib/services/operational-data";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 import type { InventoryBatch, Order } from "@/types/domain";
 
@@ -48,7 +48,7 @@ function inventoryHealth(batches: InventoryBatch[]) {
 }
 
 export default async function DashboardPage() {
-  const store = await getLocalStore();
+  const store = await getAnalyticsStore();
   const dashboard = getDashboardData(store);
   const { metrics, products, revenueSeries } = dashboard;
   const orders = latestOrders(dashboard.recentOrders);

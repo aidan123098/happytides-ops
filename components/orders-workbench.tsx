@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Edit3, Filter, Save, Trash2, X } from "lucide-react";
 import type { InventoryBatch, Order, Product } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
@@ -71,7 +70,6 @@ function visibleOrders(orders: Order[]) {
 }
 
 export function OrdersWorkbench({ initialOrders, initialProducts, initialInventoryBatches }: OrdersWorkbenchProps) {
-  const router = useRouter();
   const [orders, setOrders] = useState<Order[]>(visibleOrders(initialOrders));
   const [inventoryBatches, setInventoryBatches] = useState(initialInventoryBatches);
   const [search, setSearch] = useState("");
@@ -84,6 +82,8 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   const [editFulfillmentStatus, setEditFulfillmentStatus] = useState<(typeof fulfillmentStatuses)[number]>("unfulfilled");
   const [editCreatedAt, setEditCreatedAt] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
+  const [removingOrderId, setRemovingOrderId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "green" | "amber" | "red"; text: string } | null>(null);
 
   useLiveRefresh({
@@ -102,8 +102,6 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
         const payload = await inventoryResponse.json().catch(() => null);
         if (Array.isArray(payload?.batches)) setInventoryBatches(payload.batches);
       }
-
-      router.refresh();
     }
   });
 
@@ -234,13 +232,9 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     );
   }
 
-  async function refreshInventory() {
-    const response = await fetch("/api/inventory");
-    const payload = await response.json();
-    setInventoryBatches(payload.batches);
-  }
-
   async function saveEdit(orderId: string) {
+    if (savingOrderId || removingOrderId) return;
+
     const invalidLine = editLines.find((line) => !line.productId || !line.inventoryBatchId || line.quantity < 1 || dollarsToCents(line.unitPrice) <= 0);
 
     if (invalidLine) {
@@ -253,58 +247,78 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
       return;
     }
 
-    const response = await fetch("/api/orders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orderId,
-        customerId: orders.find((order) => order.id === orderId)?.customerId ?? "cust_placeholder",
-        affiliateId: orders.find((order) => order.id === orderId)?.affiliateId,
-        paymentMethod: editPaymentMethod,
-        fulfillmentStatus: editFulfillmentStatus,
-        createdAt: editCreatedAt,
-        items: editLines.map((line) => ({
-          productId: line.productId,
-          inventoryBatchId: line.inventoryBatchId,
-          quantity: line.quantity,
-          unitPriceCents: dollarsToCents(line.unitPrice),
-          discountCents: 0
-        })),
-        notes: editNotes
-      })
-    });
-    const payload = await response.json();
+    setSavingOrderId(orderId);
+    setMessage({ tone: "amber", text: "Saving order changes..." });
 
-    if (!response.ok) {
-      setMessage({ tone: "red", text: payload.error ?? "Order could not be updated." });
-      return;
+    try {
+      const response = await fetch("/api/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          customerId: orders.find((order) => order.id === orderId)?.customerId ?? "cust_placeholder",
+          affiliateId: orders.find((order) => order.id === orderId)?.affiliateId,
+          paymentMethod: editPaymentMethod,
+          fulfillmentStatus: editFulfillmentStatus,
+          createdAt: editCreatedAt,
+          items: editLines.map((line) => ({
+            productId: line.productId,
+            inventoryBatchId: line.inventoryBatchId,
+            quantity: line.quantity,
+            unitPriceCents: dollarsToCents(line.unitPrice),
+            discountCents: 0
+          })),
+          notes: editNotes
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setMessage({ tone: "red", text: payload.error ?? "Order could not be updated." });
+        return;
+      }
+
+      setOrders((current) => current.map((order) => (order.id === orderId ? payload.order : order)));
+      setEditingOrderId(null);
+      setMessage({ tone: "green", text: `${payload.order.orderNumber} updated and inventory rebalanced.` });
+    } catch {
+      setMessage({ tone: "red", text: "Order could not be updated. Check the local dev server and try again." });
+    } finally {
+      setSavingOrderId(null);
     }
-
-    setOrders((current) => current.map((order) => (order.id === orderId ? payload.order : order)));
-    await refreshInventory();
-    setEditingOrderId(null);
-    setMessage({ tone: "green", text: `${payload.order.orderNumber} updated and inventory rebalanced.` });
   }
 
   async function removeOrder(order: Order) {
+    if (savingOrderId || removingOrderId) return;
+
     const confirmed = window.confirm(`Remove ${order.orderNumber}? Inventory will be restored for the products in this order.`);
 
     if (!confirmed) return;
 
-    const response = await fetch(`/api/orders?orderId=${encodeURIComponent(order.id)}`, { method: "DELETE" });
-    const payload = await response.json();
+    setRemovingOrderId(order.id);
+    setMessage({ tone: "amber", text: `Removing ${order.orderNumber}...` });
 
-    if (!response.ok) {
-      setMessage({ tone: "red", text: payload.error ?? "Order could not be removed." });
-      return;
+    try {
+      const response = await fetch(`/api/orders?orderId=${encodeURIComponent(order.id)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setMessage({ tone: "red", text: payload.error ?? "Order could not be removed." });
+        return;
+      }
+
+      setOrders((current) => current.filter((candidate) => candidate.id !== order.id));
+      setMessage({ tone: "green", text: `${order.orderNumber} removed and stock restored.` });
+    } catch {
+      setMessage({ tone: "red", text: "Order could not be removed. Check the local dev server and try again." });
+    } finally {
+      setRemovingOrderId(null);
     }
-
-    setOrders((current) => current.filter((candidate) => candidate.id !== order.id));
-    await refreshInventory();
-    setMessage({ tone: "green", text: `${order.orderNumber} removed and stock restored.` });
   }
 
   function renderEditPanel(order: Order) {
+    const savingThisOrder = savingOrderId === order.id;
+
     return (
       <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-4">
@@ -377,7 +391,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                   <div className="text-xs font-semibold uppercase text-slate-500">Total</div>
                   <div className="mt-2 text-sm font-semibold text-slate-950">{formatCurrency(lineTotal)}</div>
                 </div>
-                <Button variant="ghost" className="h-9 px-0" onClick={() => setEditLines((current) => (current.length === 1 ? current : current.filter((candidate) => candidate.id !== line.id)))}>
+                <Button variant="ghost" className="h-9 px-0" onClick={() => setEditLines((current) => (current.length === 1 ? current : current.filter((candidate) => candidate.id !== line.id)))} disabled={savingThisOrder}>
                   <Trash2 size={15} />
                 </Button>
                 {lineOverAllocated ? (
@@ -395,18 +409,18 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           </div>
         ) : null}
         <div className="flex flex-wrap justify-between gap-2">
-          <Button variant="secondary" onClick={() => setEditLines((current) => [...current, makeLine()])}>
+          <Button variant="secondary" onClick={() => setEditLines((current) => [...current, makeLine()])} disabled={savingThisOrder}>
             <Filter size={15} />
             Add item
           </Button>
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => setEditingOrderId(null)}>
+            <Button variant="ghost" onClick={() => setEditingOrderId(null)} disabled={savingThisOrder}>
               <X size={15} />
               Cancel
             </Button>
-            <Button onClick={() => saveEdit(order.id)} disabled={!canSaveEdit}>
+            <Button onClick={() => saveEdit(order.id)} disabled={!canSaveEdit || savingThisOrder}>
               <Save size={15} />
-              Save changes
+              {savingThisOrder ? "Saving..." : "Save changes"}
             </Button>
           </div>
         </div>
@@ -471,7 +485,10 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
         ) : null}
 
         <div className="space-y-3 lg:hidden">
-          {filteredOrders.map((order) => (
+          {filteredOrders.map((order) => {
+            const removingThisOrder = removingOrderId === order.id;
+
+            return (
             <div key={order.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -516,23 +533,27 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
               </div>
 
               <div className="mt-3 flex gap-2">
-                <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => startEdit(order)}>
+                <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => startEdit(order)} disabled={removingThisOrder || savingOrderId === order.id}>
                   <Edit3 size={15} />
                   Edit
                 </Button>
-                <Button type="button" variant="ghost" className="h-8 flex-1 text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => removeOrder(order)}>
+                <Button type="button" variant="ghost" className="h-8 flex-1 text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => removeOrder(order)} disabled={removingThisOrder}>
                   <Trash2 size={15} />
-                  Remove
+                  {removingThisOrder ? "Removing..." : "Remove"}
                 </Button>
               </div>
 
               {editingOrderId === order.id ? <div className="mt-3">{renderEditPanel(order)}</div> : null}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <DataTable className="hidden lg:block" columns={["Order", "Customer", "Items", "Payment", "Total", "Fulfillment", "Date", "Actions"]}>
-          {filteredOrders.map((order) => (
+          {filteredOrders.map((order) => {
+            const removingThisOrder = removingOrderId === order.id;
+
+            return (
             <Fragment key={order.id}>
               <tr key={order.id}>
                 <Td className="font-medium text-slate-950">{order.orderNumber}</Td>
@@ -544,13 +565,13 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                 <Td>{displayDate(order.createdAt)}</Td>
                 <Td>
                   <div className="flex gap-2">
-                    <Button variant="secondary" className="h-8 px-2" onClick={() => startEdit(order)}>
+                    <Button variant="secondary" className="h-8 px-2" onClick={() => startEdit(order)} disabled={removingThisOrder || savingOrderId === order.id}>
                       <Edit3 size={14} />
                       Edit
                     </Button>
-                    <Button variant="ghost" className="h-8 px-2 text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => removeOrder(order)}>
+                    <Button variant="ghost" className="h-8 px-2 text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => removeOrder(order)} disabled={removingThisOrder}>
                       <Trash2 size={14} />
-                      Remove
+                      {removingThisOrder ? "Removing..." : "Remove"}
                     </Button>
                   </div>
                 </Td>
@@ -563,7 +584,8 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                 </tr>
               ) : null}
             </Fragment>
-          ))}
+            );
+          })}
         </DataTable>
 
         {filteredOrders.length === 0 ? (

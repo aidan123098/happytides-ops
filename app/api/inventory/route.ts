@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import { InventoryMovementType, InventoryStatus } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth";
-import { getLocalStore } from "@/lib/local-store";
 import { isDatabaseUnavailable } from "@/lib/offline-store";
 import { prisma } from "@/lib/prisma";
-import { getInventoryBatches } from "@/lib/services/operational-data";
+import { getInventoryBatchById, getInventoryBatches, getInventoryMovements, invalidateOperationalDataCache } from "@/lib/services/operational-data";
 import { adjustInventory } from "@/lib/services/operations";
 import { inventoryAdjustmentSchema, inventoryBatchInputSchema } from "@/lib/validation";
 
@@ -19,8 +18,8 @@ function validationError(error: unknown) {
 
 export async function GET() {
   await requirePermission("inventory:read");
-  const store = await getLocalStore();
-  return NextResponse.json({ batches: store.inventoryBatches, movements: store.inventoryMovements });
+  const [batches, movements] = await Promise.all([getInventoryBatches(), getInventoryMovements()]);
+  return NextResponse.json({ batches, movements });
 }
 
 export async function POST(request: Request) {
@@ -79,7 +78,8 @@ export async function POST(request: Request) {
         await writeAuditLog({ actor, entityType: "INVENTORY", entityId: created.id, action: "INVENTORY_BATCH_RECEIVED", after: created, metadata: { reason: payload.reason }, request }, tx);
         return created;
       });
-      const domainBatch = (await getInventoryBatches()).find((item) => item.id === batch.id);
+      invalidateOperationalDataCache();
+      const domainBatch = await getInventoryBatchById(batch.id);
       return NextResponse.json({ batch: domainBatch ?? batch }, { status: 201 });
     } catch (error) {
       if (isDatabaseUnavailable(error)) {
@@ -99,7 +99,8 @@ export async function POST(request: Request) {
 
   try {
     const batch = await adjustInventory(payload, actor, request);
-    const domainBatch = (await getInventoryBatches()).find((item) => item.id === batch.id);
+    invalidateOperationalDataCache();
+    const domainBatch = await getInventoryBatchById(batch.id);
     return NextResponse.json({ batch: domainBatch ?? batch });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {

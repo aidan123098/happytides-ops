@@ -258,38 +258,39 @@ async function validateInventory(tx: Tx, items: OrderPayload["items"]) {
 }
 
 async function recalculateCustomerStats(tx: Tx, customerId: string) {
-  const orders = await tx.order.findMany({
-    where: {
-      customerId,
-      archivedAt: null,
-      paymentStatus: PaymentStatus.PAID
-    },
-    include: { items: { include: { product: true } } },
-    orderBy: { createdAt: "asc" }
-  });
-  const totalSpendCents = orders.reduce((sum, order) => sum + order.totalCents, 0);
-  const productCounts = new Map<string, { productId: string; count: number }>();
-
-  for (const order of orders) {
-    for (const item of order.items) {
-      const current = productCounts.get(item.productId) ?? { productId: item.productId, count: 0 };
-      current.count += item.quantity;
-      productCounts.set(item.productId, current);
-    }
-  }
-
-  const favorite = [...productCounts.values()].sort((left, right) => right.count - left.count)[0];
+  const where = {
+    customerId,
+    archivedAt: null,
+    paymentStatus: PaymentStatus.PAID
+  } satisfies Prisma.OrderWhereInput;
+  const [orderStats, productCounts] = await Promise.all([
+    tx.order.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: { totalCents: true },
+      _min: { createdAt: true },
+      _max: { createdAt: true }
+    }),
+    tx.orderItem.groupBy({
+      by: ["productId"],
+      where: { order: where },
+      _sum: { quantity: true }
+    })
+  ]);
+  const totalSpendCents = orderStats._sum.totalCents ?? 0;
+  const orderCount = orderStats._count._all;
+  const favorite = productCounts.sort((left, right) => (right._sum.quantity ?? 0) - (left._sum.quantity ?? 0))[0];
 
   await tx.customer.update({
     where: { id: customerId },
     data: {
       totalSpendCents,
-      orderCount: orders.length,
-      averageOrderValueCents: Math.round(totalSpendCents / Math.max(orders.length, 1)),
-      firstPurchaseAt: orders[0]?.createdAt,
-      lastPurchaseAt: orders[orders.length - 1]?.createdAt,
+      orderCount,
+      averageOrderValueCents: Math.round(totalSpendCents / Math.max(orderCount, 1)),
+      firstPurchaseAt: orderStats._min.createdAt,
+      lastPurchaseAt: orderStats._max.createdAt,
       favoriteProductId: favorite?.productId,
-      status: orders.length > 1 ? CustomerStatus.RETURNING : CustomerStatus.NEW
+      status: orderCount > 1 ? CustomerStatus.RETURNING : CustomerStatus.NEW
     }
   });
 }
@@ -300,11 +301,21 @@ async function recalculateAffiliateMetrics(tx: Tx, affiliateId?: string | null) 
   const affiliate = await tx.affiliate.findUnique({ where: { id: affiliateId } });
   if (!affiliate) return;
 
-  const orders = await tx.order.findMany({
-    where: { affiliateId, archivedAt: null, paymentStatus: PaymentStatus.PAID }
-  });
-  const revenueGeneratedCents = orders.reduce((sum, order) => sum + order.totalCents, 0);
-  const referredCustomers = new Set(orders.map((order) => order.customerId)).size;
+  const where = { affiliateId, archivedAt: null, paymentStatus: PaymentStatus.PAID } satisfies Prisma.OrderWhereInput;
+  const [orderStats, referredCustomerRows] = await Promise.all([
+    tx.order.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: { totalCents: true }
+    }),
+    tx.order.findMany({
+      where,
+      distinct: ["customerId"],
+      select: { customerId: true }
+    })
+  ]);
+  const revenueGeneratedCents = orderStats._sum.totalCents ?? 0;
+  const referredCustomers = referredCustomerRows.length;
   const earned = Math.round((revenueGeneratedCents * affiliate.payoutRateBps) / 10000);
   const payoutDueCents = Math.max(earned - affiliate.totalPayoutCents, 0);
 
@@ -312,7 +323,7 @@ async function recalculateAffiliateMetrics(tx: Tx, affiliateId?: string | null) 
     where: { id: affiliateId },
     data: {
       revenueGeneratedCents,
-      referredOrders: orders.length,
+      referredOrders: orderStats._count._all,
       referredCustomers,
       payoutDueCents
     }

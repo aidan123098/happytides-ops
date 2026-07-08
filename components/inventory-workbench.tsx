@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { PackagePlus } from "lucide-react";
 import type { InventoryBatch, Order, Product } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
@@ -60,7 +59,6 @@ function signalTone(signal: ReorderSignal) {
 }
 
 export function InventoryWorkbench({ initialBatches, products, orders }: InventoryWorkbenchProps) {
-  const router = useRouter();
   const [batches, setBatches] = useState(initialBatches);
   const [liveOrders, setLiveOrders] = useState(orders);
   const [receiveForm, setReceiveForm] = useState<ReceiveBatchForm>({
@@ -85,6 +83,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
   const [adjustDelta, setAdjustDelta] = useState("0");
   const [adjustStatus, setAdjustStatus] = useState<InventoryBatch["status"]>(initialBatches[0]?.status ?? "available");
   const [adjustReason, setAdjustReason] = useState("");
+  const [adjusting, setAdjusting] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -105,8 +104,6 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
         const payload = await ordersResponse.json().catch(() => null);
         if (Array.isArray(payload?.orders)) setLiveOrders(payload.orders);
       }
-
-      router.refresh();
     }
   });
 
@@ -160,6 +157,8 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
   }, [batches, liveOrders, products]);
 
   async function applyAdjustment() {
+    if (adjusting) return;
+
     const quantityDelta = Number.parseInt(adjustDelta, 10);
 
     if (!adjustBatchId || !Number.isFinite(quantityDelta) || !adjustReason.trim()) {
@@ -167,24 +166,32 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
       return;
     }
 
-    const response = await fetch("/api/inventory", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ batchId: adjustBatchId, quantityDelta, reason: adjustReason, status: adjustStatus })
-    });
-    const payload = await response.json();
+    setAdjusting(true);
+    setMessage("Saving stock change...");
 
-    if (!response.ok) {
-      setMessage(payload.error ?? "Adjustment could not be saved.");
-      return;
+    try {
+      const response = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ batchId: adjustBatchId, quantityDelta, reason: adjustReason, status: adjustStatus })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setMessage(payload.error ?? "Adjustment could not be saved.");
+        return;
+      }
+
+      setBatches((current) => current.map((batch) => (batch.id === payload.batch.id ? payload.batch : batch)));
+      setAdjustDelta("0");
+      setAdjustStatus(payload.batch.status);
+      setAdjustReason("");
+      setMessage(`${payload.batch.productName} adjusted. New on-hand count: ${payload.batch.quantityOnHand}. Status: ${payload.batch.status}.`);
+    } catch {
+      setMessage("Adjustment could not be saved. Check the local dev server and try again.");
+    } finally {
+      setAdjusting(false);
     }
-
-    setBatches((current) => current.map((batch) => (batch.id === payload.batch.id ? payload.batch : batch)));
-    setAdjustDelta("0");
-    setAdjustStatus(payload.batch.status);
-    setAdjustReason("");
-    setMessage(`${payload.batch.productName} adjusted. New on-hand count: ${payload.batch.quantityOnHand}. Status: ${payload.batch.status}.`);
-    router.refresh();
   }
 
   async function receiveBatch(event: React.FormEvent<HTMLFormElement>) {
@@ -240,7 +247,6 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
         reason: "Initial receipt"
       }));
       setMessage(`${payload.batch.productName} stock received with ${payload.batch.quantityOnHand} units.`);
-      router.refresh();
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : "Stock could not be received.");
     } finally {
@@ -382,7 +388,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             <span className="text-xs font-semibold uppercase text-slate-500">Reason</span>
             <Input className="mt-1" value={adjustReason} onChange={(event) => setAdjustReason(event.target.value)} placeholder="Cycle count, damage, received stock" />
           </label>
-          <Button onClick={applyAdjustment}>Save change</Button>
+          <Button onClick={applyAdjustment} disabled={adjusting}>{adjusting ? "Saving..." : "Save change"}</Button>
           {message ? <div className="text-sm text-slate-600 md:col-span-5">{message}</div> : null}
           </div>
         </CardContent> : null}

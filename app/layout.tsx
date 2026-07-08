@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
 import { getCurrentUser } from "@/lib/auth";
-import { getDashboardData } from "@/lib/live-metrics";
-import { getLocalStore } from "@/lib/local-store";
+import { getShellPulse } from "@/lib/services/operational-data";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,8 +10,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const currentUser = await getCurrentUser();
-  const dashboard = getDashboardData(await getLocalStore());
+  const [currentUser, pulse] = await Promise.all([getCurrentUser(), getShellPulse()]);
 
   return (
     <html lang="en">
@@ -20,10 +18,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <AppShell
           currentUser={currentUser}
           pulse={{
-            revenueTodayCents: dashboard.metrics.revenueToday,
-            ordersToday: dashboard.metrics.orderCountToday,
-            lowStockCount: dashboard.metrics.lowStock.length,
-            unitsToday: dashboard.metrics.unitsSoldToday
+            revenueTodayCents: pulse.revenueTodayCents,
+            ordersToday: pulse.ordersToday,
+            lowStockCount: pulse.lowStockCount,
+            unitsToday: pulse.unitsToday
           }}
         >
           {children}

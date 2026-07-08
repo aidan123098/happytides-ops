@@ -7,7 +7,7 @@ type UseLiveRefreshOptions = {
   intervalMs?: number;
 };
 
-export function useLiveRefresh({ onRefresh, intervalMs = 2000 }: UseLiveRefreshOptions) {
+export function useLiveRefresh({ onRefresh, intervalMs = 30000 }: UseLiveRefreshOptions) {
   const lastRevision = useRef<string | null>(null);
   const refreshing = useRef(false);
   const onRefreshRef = useRef(onRefresh);

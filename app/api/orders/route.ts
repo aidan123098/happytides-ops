@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
 import { isDatabaseUnavailable } from "@/lib/offline-store";
-import { getLocalStore } from "@/lib/local-store";
+import { getOrderById, getOrders, invalidateOperationalDataCache } from "@/lib/services/operational-data";
 import { cancelOrder, createOrder, updateOrder } from "@/lib/services/operations";
 import { orderInputSchema, orderUpdateSchema } from "@/lib/validation";
 
@@ -14,12 +14,12 @@ function validationError(error: unknown) {
 }
 
 async function domainOrder(id: string) {
-  return (await getLocalStore()).orders.find((order) => order.id === id);
+  return getOrderById(id);
 }
 
 export async function GET() {
   await requirePermission("orders:read");
-  const orders = (await getLocalStore()).orders.filter((order) => order.orderNumber !== "N/A" && order.paymentStatus !== "canceled" && order.fulfillmentStatus !== "canceled");
+  const orders = (await getOrders()).filter((order) => order.orderNumber !== "N/A" && order.paymentStatus !== "canceled" && order.fulfillmentStatus !== "canceled");
   return NextResponse.json({ orders });
 }
 
@@ -35,7 +35,8 @@ export async function POST(request: Request) {
 
   try {
     const order = await createOrder(payload, actor, request);
-    return NextResponse.json({ order: await domainOrder(order.id) }, { status: 201 });
+    invalidateOperationalDataCache();
+    return NextResponse.json({ order: { id: order.id, orderNumber: order.orderNumber, totalCents: order.totalCents } }, { status: 201 });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
       return NextResponse.json({ error: "The shared database is unavailable, so the order was not saved. Try again in a moment." }, { status: 503 });
@@ -56,6 +57,7 @@ export async function PATCH(request: Request) {
 
   try {
     const order = await updateOrder(payload.orderId, payload, actor, request);
+    invalidateOperationalDataCache();
     return NextResponse.json({ order: await domainOrder(order.id) });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
@@ -74,8 +76,9 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    const order = await cancelOrder(orderId, actor, request);
-    return NextResponse.json({ order });
+    await cancelOrder(orderId, actor, request);
+    invalidateOperationalDataCache();
+    return NextResponse.json({ ok: true });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
       return NextResponse.json({ error: "The shared database is unavailable, so the order was not removed. Try again in a moment." }, { status: 503 });

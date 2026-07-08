@@ -4,13 +4,13 @@ import { ProductsWorkbench } from "@/components/products-workbench";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getLocalStore } from "@/lib/local-store";
+import { getProducts } from "@/lib/services/operational-data";
 import { formatNumber, formatPercent } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProductsPage() {
-  const { products } = await getLocalStore();
+  const products = await getProducts();
   const activeProducts = products.filter((product) => product.active);
   const missingCoas = products.filter((product) => product.coaUrl === "N/A" || !product.coaUrl).length;
   const averageMargin = activeProducts.reduce((sum, product) => sum + product.marginPercent, 0) / Math.max(activeProducts.length, 1);
@@ -24,7 +24,7 @@ export default async function ProductsPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Catalog"
-        title="Product command shelf"
+        title="Products"
         description="A complete product control surface for pricing, margin awareness, COA readiness, catalog status, imagery, disclaimers, and sales momentum."
         icon={PackageCheck}
         kicker={`${formatNumber(products.length)} catalog records`}
