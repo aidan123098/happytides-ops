@@ -5,12 +5,9 @@ import {
   BadgeDollarSign,
   Boxes,
   CheckCircle2,
-  ClipboardCheck,
   ClipboardList,
   Flame,
   PackageCheck,
-  Radar,
-  Repeat,
   ShoppingBag,
   Sparkles,
   TrendingUp,
@@ -43,20 +40,6 @@ function latestOrders(orders: Order[]) {
   });
 }
 
-function paymentMix(orders: Order[]) {
-  const paid = orders.filter((order) => order.paymentStatus === "paid");
-  const grouped = new Map<string, { label: string; revenueCents: number; orders: number }>();
-
-  for (const order of paid) {
-    const current = grouped.get(order.paymentMethod) ?? { label: order.paymentMethod, revenueCents: 0, orders: 0 };
-    current.revenueCents += order.totalCents;
-    current.orders += 1;
-    grouped.set(order.paymentMethod, current);
-  }
-
-  return [...grouped.values()].sort((left, right) => right.revenueCents - left.revenueCents);
-}
-
 function inventoryHealth(batches: InventoryBatch[]) {
   const totalOnHand = batches.reduce((sum, batch) => sum + batch.quantityOnHand, 0);
   const reserved = batches.reduce((sum, batch) => sum + batch.quantityReserved, 0);
@@ -74,38 +57,14 @@ export default async function DashboardPage() {
   const customers = getDerivedCustomers(store);
   const health = inventoryHealth(store.inventoryBatches);
   const paidOrders = orders.filter((order) => order.paymentStatus === "paid");
-  const mix = paymentMix(orders).slice(0, 4);
   const topCustomers = customers.filter((customer) => customer.orderCount > 0).slice(0, 5);
   const hotProducts = [...products].sort((left, right) => right.unitsSoldWeek - left.unitsSoldWeek).slice(0, 6);
-  const priorityItems: Array<{ label: string; detail: string; href: string; tone: PriorityTone; icon: typeof AlertTriangle }> = [
-    {
-      label: `${formatNumber(health.lowStock.length)} stock alerts`,
-      detail: health.lowStock.length > 0 ? "Reorder or adjust count before demand catches you." : "No low-stock counts are blocking sales.",
-      href: "/inventory",
-      tone: health.lowStock.length > 0 ? "amber" : "green",
-      icon: AlertTriangle
-    },
-    {
-      label: `${formatNumber(metrics.orderCountToday)} orders today`,
-      detail: `${formatNumber(metrics.unitsSoldToday)} units allocated from live inventory.`,
-      href: "/orders",
-      tone: metrics.orderCountToday > 0 ? "blue" : "slate",
-      icon: ClipboardCheck
-    },
-    {
-      label: `${formatNumber(metrics.returningCustomers)} repeat customers`,
-      detail: `${formatNumber(metrics.newCustomers)} new buyers in the current customer set.`,
-      href: "/customers",
-      tone: metrics.returningCustomers > 0 ? "blue" : "slate",
-      icon: Repeat
-    }
-  ];
 
   return (
     <div className="space-y-5">
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-[#0d1117] text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
-        <div className="grid gap-0 xl:grid-cols-2">
-          <div className="p-5 sm:p-6 lg:p-7">
+        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.85fr)] lg:items-center lg:p-6">
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
               <span className="inline-flex h-7 items-center gap-2 rounded-md border border-emerald-300/20 bg-emerald-300/10 px-2.5 text-emerald-200">
                 <Sparkles size={14} />
@@ -115,54 +74,28 @@ export default async function DashboardPage() {
                 {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
               </span>
             </div>
-            <div className="mt-6 max-w-3xl">
-              <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">HappyTides command center</h1>
+            <div className="mt-4 max-w-3xl">
+              <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl">HappyTides command center</h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-                Track cash, orders, stock risk, customer momentum, and next actions from one operating surface.
+                Track sales, order flow, stock risk, and customer momentum from one operating surface.
               </p>
             </div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-400"><BadgeDollarSign size={14} /> Today</div>
-                <div className="mt-2 text-2xl font-semibold">{formatCurrency(metrics.revenueToday)}</div>
-                <div className="mt-1 text-xs text-slate-400">{formatNumber(metrics.orderCountToday)} orders / {formatNumber(metrics.unitsSoldToday)} units</div>
-              </div>
-              <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-400"><TrendingUp size={14} /> Week</div>
-                <div className="mt-2 text-2xl font-semibold">{formatCurrency(metrics.revenueWeek)}</div>
-                <div className="mt-1 text-xs text-slate-400">{metrics.topWeek?.unitsSoldWeek ? metrics.topWeek.name : "No weekly leader yet"}</div>
-              </div>
-              <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-400"><Boxes size={14} /> Inventory</div>
-                <div className="mt-2 text-2xl font-semibold">{formatNumber(health.totalOnHand)}</div>
-                <div className="mt-1 text-xs text-slate-400">{formatNumber(health.lowStock.length)} alerts / {formatNumber(health.reserved)} reserved</div>
-              </div>
-            </div>
           </div>
-          <div className="border-t border-white/10 bg-white/[0.04] p-5 sm:p-6 xl:border-l xl:border-t-0">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-semibold uppercase text-slate-400">Priority rail</div>
-                <div className="mt-1 text-sm font-semibold text-white">What to handle first</div>
-              </div>
-              <Badge tone={health.lowStock.length > 0 ? "amber" : "green"}>{health.lowStock.length > 0 ? "Review" : "Clear"}</Badge>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase text-slate-400"><BadgeDollarSign size={13} /> Today</div>
+              <div className="mt-2 text-xl font-semibold sm:text-2xl">{formatCurrency(metrics.revenueToday, 0)}</div>
+              <div className="mt-1 text-[11px] leading-4 text-slate-400">{formatNumber(metrics.orderCountToday)} orders</div>
             </div>
-            <div className="mt-4 space-y-2">
-              {priorityItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link key={item.label} href={item.href} className="group flex items-start gap-3 rounded-md border border-white/10 bg-white/[0.06] p-3 transition-colors hover:bg-white/[0.1]">
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/10 text-white">
-                      <Icon size={16} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-white">{item.label}</span>
-                      <span className="mt-0.5 block text-xs leading-5 text-slate-400">{item.detail}</span>
-                    </span>
-                    <ArrowRight size={15} className="mt-2 text-slate-500 transition-transform group-hover:translate-x-0.5 group-hover:text-white" />
-                  </Link>
-                );
-              })}
+            <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase text-slate-400"><TrendingUp size={13} /> Week</div>
+              <div className="mt-2 text-xl font-semibold sm:text-2xl">{formatCurrency(metrics.revenueWeek, 0)}</div>
+              <div className="mt-1 truncate text-[11px] leading-4 text-slate-400">{metrics.topWeek?.unitsSoldWeek ? metrics.topWeek.name : "No leader"}</div>
+            </div>
+            <div className="rounded-md border border-white/10 bg-white/[0.06] p-3">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase text-slate-400"><Boxes size={13} /> Stock</div>
+              <div className="mt-2 text-xl font-semibold sm:text-2xl">{formatNumber(health.totalOnHand)}</div>
+              <div className="mt-1 text-[11px] leading-4 text-slate-400">{formatNumber(health.reserved)} reserved</div>
             </div>
           </div>
         </div>
@@ -179,7 +112,7 @@ export default async function DashboardPage() {
         <MetricCard title="Repeat signal" value={`${metrics.repeatRate}%`} detail={`${formatNumber(metrics.returningCustomers)} returning / ${formatNumber(metrics.newCustomers)} new`} icon={Users} tone="blue" />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
+      <section>
         <Card>
           <CardHeader>
             <div>
@@ -192,41 +125,9 @@ export default async function DashboardPage() {
             <RevenueChart data={revenueSeries} />
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>Operating queue</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Fast actions for the next person on shift.</p>
-            </div>
-            <Radar size={18} className="text-slate-400" />
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {[
-              ["Create sale", "/orders/new?returnTo=%2F", "Record an in-person order and allocate stock", "primary"],
-              ["Check reorder list", "/inventory", "Review coverage, reserved stock, and manual counts", "secondary"],
-              ["Follow up customers", "/customers", "Find returning and new buyer records", "secondary"],
-              ["Open analytics", "/analytics", "Inspect product, customer, and demand signals", "secondary"]
-            ].map(([label, href, detail, style]) => (
-              <Link
-                key={label}
-                href={href}
-                className={style === "primary"
-                  ? "group flex items-center justify-between gap-3 rounded-md bg-slate-950 p-3 text-white transition-colors hover:bg-slate-800"
-                  : "group flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 transition-colors hover:bg-white"}
-              >
-                <span>
-                  <span className="block text-sm font-semibold">{label}</span>
-                  <span className={style === "primary" ? "mt-1 block text-xs text-slate-300" : "mt-1 block text-xs text-slate-500"}>{detail}</span>
-                </span>
-                <ArrowRight size={15} className="shrink-0 transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)_minmax(320px,0.75fr)]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <Card>
           <CardHeader>
             <div>
@@ -276,29 +177,6 @@ export default async function DashboardPage() {
                     <div className="h-1.5 rounded-full bg-slate-950" style={{ width: `${Math.min(product.unitsSoldWeek * 10, 100)}%` }} />
                   </div>
                   <div className="mt-2 text-xs text-slate-500">{formatCurrency(product.revenueWeekCents)} week revenue</div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>Payment mix</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Payment methods driving cash.</p>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              {mix.length === 0 ? <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No paid payment mix yet.</div> : null}
-              {mix.map((item) => (
-                <div key={item.label} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-950">{item.label}</div>
-                    <div className="text-xs text-slate-500">{formatNumber(item.orders)} orders</div>
-                  </div>
-                  <div className="text-sm font-semibold text-slate-950">{formatCurrency(item.revenueCents)}</div>
                 </div>
               ))}
             </div>
