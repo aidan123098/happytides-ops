@@ -25,7 +25,7 @@ export default async function ProductsPage() {
       <PageHeader
         eyebrow="Catalog"
         title="Products"
-        description="A complete product control surface for pricing, margin awareness, COA readiness, catalog status, imagery, disclaimers, and sales momentum."
+        description="Manage SKUs, pricing, COAs, margins, and catalog status."
         icon={PackageCheck}
         kicker={`${formatNumber(products.length)} catalog records`}
         stats={[

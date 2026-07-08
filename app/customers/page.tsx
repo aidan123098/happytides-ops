@@ -31,7 +31,7 @@ export default async function CustomersPage() {
       <PageHeader
         eyebrow="CRM"
         title="Customers"
-        description="Customer records for receipts, consent, wholesale status, purchase value, repeat behavior, segmentation, notes, and follow-up focus."
+        description="Keep customer contact details, order history, consent, and follow-up notes in one place."
         icon={UsersRound}
         kicker={`${formatNumber(realCustomers.length)} real records`}
         stats={[

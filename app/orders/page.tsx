@@ -26,8 +26,8 @@ export default async function OrdersPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Sales processing"
-        title="Orders command"
-        description="A fast sales desk for orders, payment tracking, customer attribution, affiliate credit, reserved stock, packing, shipping, and delivery."
+        title="Orders"
+        description="Record orders, track payment, and keep fulfillment moving from packing to delivery."
         icon={ClipboardList}
         kicker={`${formatNumber(visibleOrders.length)} active orders`}
         stats={[

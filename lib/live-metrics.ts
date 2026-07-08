@@ -42,6 +42,14 @@ function unitsInOrder(order: Order) {
   return order.items.reduce((sum, item) => sum + item.quantity, 0);
 }
 
+function inventoryHealth(batches: InventoryBatch[]) {
+  const totalOnHand = batches.reduce((sum, batch) => sum + batch.quantityOnHand, 0);
+  const reserved = batches.reduce((sum, batch) => sum + batch.quantityReserved, 0);
+  const lowStock = batches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold);
+
+  return { totalOnHand, reserved, lowStock };
+}
+
 function productForItem(products: Product[], item: Order["items"][number]) {
   if (item.productId) {
     return products.find((product) => product.id === item.productId);
@@ -288,3 +296,23 @@ export function getAnalyticsSummaryFromStore(store: MetricsStore) {
     recentOrders: dashboard.recentOrders.slice(0, 8)
   };
 }
+
+export function getDashboardSnapshot(store: MetricsStore) {
+  const dashboard = getDashboardData(store);
+  const recentOrders = dashboard.recentOrders.slice(0, 8);
+  const topCustomers = getDerivedCustomers(store).filter((customer) => customer.orderCount > 0).slice(0, 5);
+
+  return {
+    metrics: dashboard.metrics,
+    revenueSeries: dashboard.revenueSeries,
+    products: dashboard.products,
+    locationSales: dashboard.locationSales,
+    inventoryWarnings: dashboard.metrics.lowStock,
+    inventoryHealth: inventoryHealth(store.inventoryBatches),
+    recentOrders,
+    paidOrderCount: dashboard.recentOrders.filter((order) => order.paymentStatus === "paid").length,
+    topCustomers
+  };
+}
+
+export type DashboardSnapshot = ReturnType<typeof getDashboardSnapshot>;

@@ -36,7 +36,7 @@ export default async function InventoryPage() {
       <PageHeader
         eyebrow="Inventory control"
         title="Inventory"
-        description="Stock control for on-hand quantity, reserved units, sold units, supplier records, receiving, and adjustment history."
+        description="Track stock on hand, reserved units, receipts, adjustments, and movement history."
         icon={Boxes}
         kicker={`${formatNumber(products.filter((product) => product.active).length)} tracked SKUs`}
         stats={[

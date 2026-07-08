@@ -79,7 +79,7 @@ export default async function AnalyticsPage() {
       <PageHeader
         eyebrow="Analytics"
         title="Analytics"
-        description="A practical readout for sales momentum, product velocity, customer follow-up, fulfillment pressure, and inventory risk."
+        description="See sales trends, product movement, customer follow-ups, and stock risks at a glance."
         icon={TrendingUp}
         kicker={`${formatNumber(summary.ordersWeek)} paid orders this week`}
         stats={[
