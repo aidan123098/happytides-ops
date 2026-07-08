@@ -4,7 +4,6 @@ import {
   ArrowRight,
   BadgeDollarSign,
   Boxes,
-  CheckCircle2,
   ClipboardList,
   Flame,
   PackageCheck,
@@ -44,9 +43,8 @@ function inventoryHealth(batches: InventoryBatch[]) {
   const totalOnHand = batches.reduce((sum, batch) => sum + batch.quantityOnHand, 0);
   const reserved = batches.reduce((sum, batch) => sum + batch.quantityReserved, 0);
   const lowStock = batches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold);
-  const blocked = batches.filter((batch) => ["quarantined", "damaged", "expired"].includes(batch.status));
 
-  return { totalOnHand, reserved, lowStock, blocked };
+  return { totalOnHand, reserved, lowStock };
 }
 
 export default async function DashboardPage() {
@@ -138,8 +136,7 @@ export default async function DashboardPage() {
           <CardContent className="space-y-3">
             {[
               ["On hand", formatNumber(health.totalOnHand), "Available stock quantity", "green"],
-              ["Reserved", formatNumber(health.reserved), "Committed but not sold", "blue"],
-              ["Blocked", formatNumber(health.blocked.length), "Quarantine or damage", "amber"]
+              ["Reserved", formatNumber(health.reserved), "Committed but not sold", "blue"]
             ].map(([label, value, detail, tone]) => (
               <div key={label} className="rounded-md border border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -158,7 +155,7 @@ export default async function DashboardPage() {
           <CardHeader>
             <div>
               <CardTitle>Product velocity</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Weekly product movement and revenue concentration.</p>
+              <p className="mt-1 text-sm text-slate-500">Product movement over the last seven days.</p>
             </div>
           </CardHeader>
           <CardContent className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -176,7 +173,6 @@ export default async function DashboardPage() {
                   <div className="mt-2 h-1.5 rounded-full bg-white">
                     <div className="h-1.5 rounded-full bg-slate-950" style={{ width: `${Math.min(product.unitsSoldWeek * 10, 100)}%` }} />
                   </div>
-                  <div className="mt-2 text-xs text-slate-500">{formatCurrency(product.revenueWeekCents)} week revenue</div>
                 </div>
               ))}
             </div>
@@ -262,11 +258,10 @@ export default async function DashboardPage() {
         </Card>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
+      <section className="grid gap-4 xl:grid-cols-2">
         {[
           { title: "Fulfillment stance", detail: health.lowStock.length > 0 ? "Inventory needs active attention before the next rush." : "Stock coverage looks workable from current thresholds.", icon: Truck, tone: health.lowStock.length > 0 ? "amber" : "green", href: "/inventory" },
-          { title: "Sales stance", detail: metrics.orderCountToday > 0 ? "Orders are flowing and totals are updating across the system." : "Start with a manual order when the first sale comes in.", icon: ShoppingBag, tone: metrics.orderCountToday > 0 ? "green" : "slate", href: "/orders/new?returnTo=%2F" },
-          { title: "Data confidence", detail: "Dashboard numbers are derived from paid orders, live catalog, and inventory counts.", icon: CheckCircle2, tone: "blue", href: "/analytics" }
+          { title: "Sales stance", detail: metrics.orderCountToday > 0 ? "Orders are flowing and totals are updating across the system." : "Start with a manual order when the first sale comes in.", icon: ShoppingBag, tone: metrics.orderCountToday > 0 ? "green" : "slate", href: "/orders/new?returnTo=%2F" }
         ].map((item) => {
           const Icon = item.icon;
           return (

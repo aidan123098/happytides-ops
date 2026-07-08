@@ -1,6 +1,7 @@
 "use client";
 
-import { Edit3, Plus, Save, Search, Trash2, X } from "lucide-react";
+import Link from "next/link";
+import { Edit3, Save, Search, Trash2, UserPlus, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Customer } from "@/types/domain";
@@ -153,13 +154,6 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
     setError("");
   }
 
-  function startAdd() {
-    setEditingId(null);
-    setForm(emptyForm);
-    setShowForm(true);
-    setError("");
-  }
-
   function editCustomer(customer: Customer) {
     setEditingId(customer.id);
     setForm(customerToForm(customer));
@@ -223,10 +217,10 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
         </div>
         <div className="flex items-center gap-2">
           <Badge tone="slate">{filteredCustomers.length || "N/A"}</Badge>
-          <Button type="button" onClick={startAdd}>
-            <Plus size={16} />
-            Add
-          </Button>
+          <Link className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring" href="/customers/new">
+            <UserPlus size={16} />
+            Add customer
+          </Link>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -298,38 +292,38 @@ export function CustomersWorkbench({ customers: initialCustomers }: { customers:
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</div>
         ) : null}
 
-        <div className="grid gap-3 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3 md:grid-cols-[minmax(180px,1fr)_150px_150px_150px_150px]">
+        <div className="grid gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 p-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_140px_150px_140px_140px]">
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Search</span>
-            <div className="relative mt-1">
+            <span className="sr-only">Search customers</span>
+            <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input className="bg-white pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, email, phone, tag" />
             </div>
           </label>
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Type</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+            <span className="sr-only">Type</span>
+            <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
               <option value="all">All types</option>
               {customerTypes.map((item) => <option key={item} value={item}>{typeLabel(item)}</option>)}
             </select>
           </label>
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Source</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
+            <span className="sr-only">Source</span>
+            <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
               <option value="all">All sources</option>
               {customerSources.map((item) => <option key={item} value={item}>{sourceLabel(item)}</option>)}
             </select>
           </label>
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <span className="sr-only">Status</span>
+            <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
               <option value="all">All status</option>
               {customerStatuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}
             </select>
           </label>
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Consent</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={consentFilter} onChange={(event) => setConsentFilter(event.target.value)}>
+            <span className="sr-only">Consent</span>
+            <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={consentFilter} onChange={(event) => setConsentFilter(event.target.value)}>
               <option value="all">All consent</option>
               <option value="sms">SMS yes</option>
               <option value="email">Email yes</option>

@@ -31,24 +31,32 @@ export default async function CustomersPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="CRM"
-        title="Customer relationship desk"
+        title="Customers"
         description="Customer records for receipts, consent, wholesale status, purchase value, repeat behavior, segmentation, notes, and follow-up focus."
         icon={UsersRound}
         kicker={`${formatNumber(realCustomers.length)} real records`}
         stats={[
-          { label: "Customer value", value: formatCurrency(totalSpendCents, 0), detail: "Lifetime spend across CRM records", icon: DollarSign, tone: "green" },
           { label: "Repeat buyers", value: formatNumber(repeatCustomers), detail: "Customers with more than one order", icon: Repeat2, tone: repeatCustomers > 0 ? "blue" : "slate" },
           { label: "Consent ready", value: formatNumber(consentReady), detail: "SMS or email allowed", icon: MessageCircle, tone: consentReady > 0 ? "blue" : "amber" },
           { label: "Wholesale", value: formatNumber(wholesaleCustomers), detail: "Wholesale customer records", icon: Store, tone: wholesaleCustomers > 0 ? "amber" : "slate" }
         ]}
         actions={
-          <Link
-            href="#customers-workbench"
-            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <UserPlus size={16} />
-            Manage customers
-          </Link>
+          <>
+            <Link
+              href="#customers-workbench"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <UsersRound size={16} />
+              See customers
+            </Link>
+            <Link
+              href="/customers/new"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <UserPlus size={16} />
+              Add customer
+            </Link>
+          </>
         }
       />
 

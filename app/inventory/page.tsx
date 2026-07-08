@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Boxes, CircleDollarSign, ClipboardList, History, PackageCheck } from "lucide-react";
+import { AlertTriangle, Boxes, CircleDollarSign, ClipboardList, PackageCheck } from "lucide-react";
 import { DataTable, Td } from "@/components/data-table";
 import { InventoryWorkbench } from "@/components/inventory-workbench";
 import { MetricCard } from "@/components/metric-card";
@@ -35,7 +35,7 @@ export default async function InventoryPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Inventory control"
-        title="Inventory cockpit"
+        title="Inventory"
         description="Stock control for on-hand quantity, reserved units, sold units, supplier records, receiving, and adjustment history."
         icon={Boxes}
         kicker={`${formatNumber(products.filter((product) => product.active).length)} tracked SKUs`}
@@ -45,22 +45,13 @@ export default async function InventoryPage() {
           { label: "Stock value", value: formatCurrency(inventoryValue, 0), detail: "Estimated on-hand cost basis", icon: CircleDollarSign, tone: "blue" }
         ]}
         actions={
-          <>
-            <Link
-              href="#inventory-workbench"
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <ClipboardList size={16} />
-              Manage stock
-            </Link>
-            <Link
-              href="#inventory-audit"
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <History size={16} />
-              Movement audit
-            </Link>
-          </>
+          <Link
+            href="#inventory-workbench"
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <ClipboardList size={16} />
+            Manage stock
+          </Link>
         }
       />
 
@@ -73,6 +64,11 @@ export default async function InventoryPage() {
 
       <div id="inventory-workbench">
         <InventoryWorkbench initialBatches={inventoryBatches} products={products} orders={orders} />
+      </div>
+
+      <div className="border-t border-slate-200 pt-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Movement history</h2>
+        <p className="mt-1 text-sm text-slate-500">Recent stock changes, reservations, receipts, and adjustments.</p>
       </div>
 
       <Card id="inventory-audit">

@@ -423,14 +423,14 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3 md:grid-cols-[minmax(180px,1fr)_180px_180px_150px]">
+        <div className="grid gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 p-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_180px_160px_170px]">
           <label className="block">
-            <span className="text-xs font-semibold uppercase text-slate-500">Search</span>
-            <Input className="mt-1 bg-white" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Order, customer, SKU, payment" />
+            <span className="sr-only">Search orders</span>
+            <Input className="bg-white" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Order, customer, SKU, payment" />
           </label>
           <label className="block">
-            <span className="text-xs font-semibold uppercase text-slate-500">Product</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={productFilter} onChange={(event) => setProductFilter(event.target.value)}>
+            <span className="sr-only">Product</span>
+            <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={productFilter} onChange={(event) => setProductFilter(event.target.value)}>
               <option value="all">All products</option>
               {initialProducts.map((product) => (
                 <option key={product.id} value={product.id}>
@@ -440,8 +440,8 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             </select>
           </label>
           <label className="block">
-            <span className="text-xs font-semibold uppercase text-slate-500">Payment</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}>
+            <span className="sr-only">Payment</span>
+            <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}>
               <option value="all">All payment</option>
               {paymentMethods.map((method) => (
                 <option key={method} value={method}>
@@ -451,8 +451,8 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             </select>
           </label>
           <label className="block">
-            <span className="text-xs font-semibold uppercase text-slate-500">Fulfillment</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <span className="sr-only">Fulfillment</span>
+            <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
               <option value="all">All fulfillment</option>
               {fulfillmentStatuses.map((status) => (
                 <option key={status} value={status}>

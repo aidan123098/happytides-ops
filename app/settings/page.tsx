@@ -1,20 +1,10 @@
 import { ShieldCheck, UsersRound } from "lucide-react";
-import { DataTable, Td } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
-
-const roles = [
-  { role: "Owner", access: "Full access", scope: "Products, inventory, customers, orders, affiliates, analytics, settings, audit" },
-  { role: "Operations Admin", access: "Operations control", scope: "Day-to-day selling, stock, reporting, integrations" },
-  { role: "Sales", access: "Sales workflow", scope: "Customers, orders, payments, reports" },
-  { role: "Warehouse", access: "Stock workflow", scope: "Inventory and order fulfillment" },
-  { role: "Finance", access: "Finance workflow", scope: "Orders, payments, refunds, exports, reports" },
-  { role: "Viewer", access: "Read only", scope: "Dashboard, customers, orders, inventory, payments, reports" }
-];
 
 export default async function SettingsPage() {
   const currentUser = await getCurrentUser();
@@ -46,7 +36,7 @@ export default async function SettingsPage() {
         ]}
       />
 
-      <section className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+      <section className="max-w-3xl">
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -65,26 +55,6 @@ export default async function SettingsPage() {
             <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600">
               Use this page to confirm which staff account is active before managing orders, customers, inventory, or products.
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={17} className="text-blue-700" />
-              <CardTitle>Role matrix</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <DataTable columns={["Role", "Access", "Scope"]}>
-              {roles.map((role) => (
-                <tr key={role.role}>
-                  <Td className="font-medium text-slate-950">{role.role}</Td>
-                  <Td>{role.access}</Td>
-                  <Td>{role.scope}</Td>
-                </tr>
-              ))}
-            </DataTable>
           </CardContent>
         </Card>
       </section>

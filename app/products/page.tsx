@@ -1,19 +1,17 @@
 import Link from "next/link";
-import { BadgeCheck, Boxes, CircleDollarSign, FileWarning, PackageCheck, PencilRuler, Plus } from "lucide-react";
+import { BadgeCheck, Boxes, FileWarning, PackageCheck, PencilRuler, Plus } from "lucide-react";
 import { ProductsWorkbench } from "@/components/products-workbench";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getLocalStore } from "@/lib/local-store";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { formatNumber, formatPercent } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProductsPage() {
   const { products } = await getLocalStore();
   const activeProducts = products.filter((product) => product.active);
-  const weeklyRevenueCents = products.reduce((sum, product) => sum + product.revenueWeekCents, 0);
-  const weeklyUnits = products.reduce((sum, product) => sum + product.unitsSoldWeek, 0);
   const missingCoas = products.filter((product) => product.coaUrl === "N/A" || !product.coaUrl).length;
   const averageMargin = activeProducts.reduce((sum, product) => sum + product.marginPercent, 0) / Math.max(activeProducts.length, 1);
   const topMovers = [...products].sort((left, right) => right.unitsSoldWeek - left.unitsSoldWeek).slice(0, 4);
@@ -32,7 +30,7 @@ export default async function ProductsPage() {
         kicker={`${formatNumber(products.length)} catalog records`}
         stats={[
           { label: "Active SKUs", value: formatNumber(activeProducts.length), detail: "Visible in normal selling flows", icon: PackageCheck, tone: "green" },
-          { label: "Week revenue", value: formatCurrency(weeklyRevenueCents, 0), detail: `${formatNumber(weeklyUnits)} units sold this week`, icon: CircleDollarSign, tone: "blue" },
+          { label: "Tracked SKUs", value: formatNumber(products.filter((product) => product.inventoryTrackingEnabled).length), detail: "Catalog items tied to stock counts", icon: Boxes, tone: "blue" },
           { label: "COA gaps", value: formatNumber(missingCoas), detail: "Records missing linked documents", icon: FileWarning, tone: missingCoas > 0 ? "amber" : "green" },
           { label: "Avg margin", value: formatPercent(averageMargin), detail: "Active catalog average margin", icon: BadgeCheck, tone: averageMargin >= 60 ? "green" : "amber" }
         ]}
@@ -46,7 +44,7 @@ export default async function ProductsPage() {
               Manage catalog
             </Link>
             <Link
-              href="#products-workbench"
+              href="/products/new"
               className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <Plus size={16} />
@@ -58,7 +56,7 @@ export default async function ProductsPage() {
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard title="Active SKUs" value={formatNumber(activeProducts.length)} detail={`${formatNumber(products.length)} total catalog records`} icon={PackageCheck} tone="green" />
-        <MetricCard title="Week Revenue" value={formatCurrency(weeklyRevenueCents)} detail={`${formatNumber(weeklyUnits)} units sold this week`} icon={CircleDollarSign} tone="blue" featured />
+        <MetricCard title="Tracked SKUs" value={formatNumber(products.filter((product) => product.inventoryTrackingEnabled).length)} detail="Connected to inventory counts" icon={Boxes} tone="blue" featured />
         <MetricCard title="Average Margin" value={formatPercent(averageMargin)} detail="Active catalog average" icon={BadgeCheck} tone={averageMargin >= 60 ? "green" : "amber"} />
         <MetricCard title="COA Gaps" value={formatNumber(missingCoas)} detail="Records missing a linked COA" icon={FileWarning} tone={missingCoas > 0 ? "amber" : "green"} />
         <MetricCard title="Inactive SKUs" value={formatNumber(products.length - activeProducts.length)} detail="Hidden from normal selling flow" icon={Boxes} tone="slate" />
@@ -81,7 +79,6 @@ export default async function ProductsPage() {
                 </div>
                 <div className="text-right">
                   <div className="text-sm font-semibold text-slate-950">{formatNumber(product.unitsSoldWeek)} units</div>
-                  <div className="text-xs text-slate-500">{formatCurrency(product.revenueWeekCents)}</div>
                 </div>
               </div>
             ))}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { Edit3, ExternalLink, Plus, Save, Search, Trash2, X } from "lucide-react";
 import type { Product } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
@@ -141,13 +142,6 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
     setForm(emptyForm);
   }
 
-  function startAdd() {
-    setMessage(null);
-    setEditingProductId(null);
-    setForm(emptyForm);
-    setShowForm(true);
-  }
-
   function startEdit(product: Product) {
     setMessage(null);
     setEditingProductId(product.id);
@@ -219,10 +213,10 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
         </div>
         <div className="flex items-center gap-2">
           <Badge tone="blue">{formatNumber(filteredProducts.length)} SKUs</Badge>
-          <Button type="button" onClick={startAdd}>
+          <Link className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-ring" href="/products/new">
             <Plus size={16} />
-            Add
-          </Button>
+            Add SKU
+          </Link>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -324,24 +318,24 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
           </div>
         ) : null}
 
-        <div className="grid gap-3 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3 md:grid-cols-[minmax(180px,1fr)_220px_160px]">
+        <div className="grid gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 p-2 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1fr)_220px_160px]">
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Search</span>
-            <div className="relative mt-1">
+            <span className="sr-only">Search products</span>
+            <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input className="bg-white pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="SKU, product, category" />
             </div>
           </label>
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Category</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={category} onChange={(event) => setCategory(event.target.value)}>
+            <span className="sr-only">Category</span>
+            <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="all">All categories</option>
               {categories.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={status} onChange={(event) => setStatus(event.target.value)}>
+            <span className="sr-only">Status</span>
+            <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={status} onChange={(event) => setStatus(event.target.value)}>
               <option value="all">All status</option>
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
@@ -396,7 +390,6 @@ export function ProductsWorkbench({ products: initialProducts }: { products: Pro
               <Td><Badge tone={product.marginPercent >= 65 ? "green" : product.marginPercent >= 45 ? "blue" : "amber"}>{formatPercent(product.marginPercent)}</Badge></Td>
               <Td>
                 <div className="font-medium text-slate-950">{formatNumber(product.unitsSoldWeek)} units</div>
-                <div className="text-xs text-slate-500">{formatCurrency(product.revenueWeekCents)}</div>
               </Td>
               <Td>
                 {product.coaUrl === "N/A" || !product.coaUrl ? (

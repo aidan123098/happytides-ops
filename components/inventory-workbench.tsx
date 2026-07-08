@@ -250,11 +250,16 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
 
   return (
     <div className="space-y-4">
+      <div className="border-t border-slate-200 pt-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Stock actions</h2>
+        <p className="mt-1 text-sm text-slate-500">Receive new stock or make a manual count correction.</p>
+      </div>
+
       <Card>
         <CardHeader>
           <div>
             <CardTitle>Receive stock</CardTitle>
-            <p className="mt-1 text-sm text-slate-500">Collapsed by default. Open only when adding new stock.</p>
+            <p className="mt-1 text-sm text-slate-500">Open when a shipment or restock needs to be added.</p>
           </div>
           <Button type="button" variant="secondary" onClick={() => setShowReceive((open) => !open)}>
             {showReceive ? "Close" : "Open"}
@@ -323,8 +328,8 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
       <Card>
         <CardHeader>
           <div>
-            <CardTitle>Manual inventory adjustment</CardTitle>
-            <p className="mt-1 text-sm text-slate-500">Collapsed by default. Open for cycle counts, corrections, and status changes.</p>
+            <CardTitle>Manual stock adjustment</CardTitle>
+            <p className="mt-1 text-sm text-slate-500">Open for cycle counts, corrections, and status changes.</p>
           </div>
           <Button type="button" variant="secondary" onClick={() => setShowAdjust((open) => !open)}>
             {showAdjust ? "Close" : "Open"}
@@ -383,6 +388,11 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
         </CardContent> : null}
       </Card>
 
+      <div className="border-t border-slate-200 pt-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Inventory stock</h2>
+        <p className="mt-1 text-sm text-slate-500">Current on-hand, reserved, sold, supplier, and reorder counts.</p>
+      </div>
+
       <Card>
         <CardHeader>
           <div>
@@ -392,14 +402,14 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
           <Badge tone="amber">{batches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold).length} warnings</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3 md:grid-cols-[minmax(180px,1fr)_180px_180px]">
+          <div className="grid gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 p-2 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1fr)_170px_180px]">
             <label>
-              <span className="text-xs font-semibold uppercase text-slate-500">Search</span>
-              <Input className="mt-1 bg-white" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="SKU, product, stock, supplier" />
+              <span className="sr-only">Search inventory</span>
+              <Input className="bg-white" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="SKU, product, stock, supplier" />
             </label>
             <label>
-              <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
-              <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={status} onChange={(event) => setStatus(event.target.value)}>
+              <span className="sr-only">Status</span>
+              <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={status} onChange={(event) => setStatus(event.target.value)}>
                 <option value="all">All status</option>
                 <option value="available">Available</option>
                 <option value="reserved">Reserved</option>
@@ -409,8 +419,8 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
               </select>
             </label>
             <label>
-              <span className="text-xs font-semibold uppercase text-slate-500">Supplier</span>
-              <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={supplier} onChange={(event) => setSupplier(event.target.value)}>
+              <span className="sr-only">Supplier</span>
+              <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={supplier} onChange={(event) => setSupplier(event.target.value)}>
                 <option value="all">All suppliers</option>
                 {suppliers.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
@@ -498,6 +508,11 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
           ) : null}
         </CardContent>
       </Card>
+
+      <div className="border-t border-slate-200 pt-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Reorder planning</h2>
+        <p className="mt-1 text-sm text-slate-500">Coverage estimates based on recent paid-order movement.</p>
+      </div>
 
       <Card>
         <CardHeader>

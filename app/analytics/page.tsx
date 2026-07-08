@@ -78,7 +78,7 @@ export default async function AnalyticsPage() {
     <div className="space-y-5">
       <PageHeader
         eyebrow="Analytics"
-        title="Operating intelligence"
+        title="Analytics"
         description="A practical readout for sales momentum, product velocity, customer follow-up, fulfillment pressure, and inventory risk."
         icon={TrendingUp}
         kicker={`${formatNumber(summary.ordersWeek)} paid orders this week`}
@@ -116,7 +116,7 @@ export default async function AnalyticsPage() {
         <MetricCard title="Average order" value={formatCurrency(summary.aovTodayCents)} detail="Today across paid orders" icon={ClipboardList} tone="slate" />
         <MetricCard title="Open products" value={formatNumber(summary.products.filter((product) => product.active).length)} detail="Active catalog items" icon={Boxes} tone="blue" />
         <MetricCard title="Active customers" value={formatNumber(summary.activeCustomers)} detail={`${formatNumber(summary.repeatPurchaseRate)}% repeat purchase signal`} icon={Repeat} tone="blue" />
-        <MetricCard title="Purchase rhythm" value={summary.averageDaysBetweenPurchases ? `${summary.averageDaysBetweenPurchases}d` : "N/A"} detail="Average time between paid orders" icon={Timer} tone="slate" />
+        <MetricCard title="Turnaround time" value={summary.averageDaysBetweenPurchases ? `${summary.averageDaysBetweenPurchases}d` : "N/A"} detail="Average time between paid orders" icon={Timer} tone="slate" />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.75fr)]">
