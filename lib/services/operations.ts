@@ -120,13 +120,13 @@ async function transitionOrderInventory(tx: Tx, previousItems: InventoryItem[], 
   if (batches.length !== ids.length) throw new Error("Selected inventory lot was not found.");
   const changedIds: string[] = [];
 
-  for (const batch of batches) {
+  await Promise.all(batches.map(async (batch) => {
     const before = previous.get(batch.id) ?? { productId: batch.productId, reserved: 0, sold: 0 };
     const after = next.get(batch.id) ?? { productId: batch.productId, reserved: 0, sold: 0 };
     if (before.productId !== batch.productId || after.productId !== batch.productId) throw new Error("Selected lot does not belong to the selected product.");
 
     const { counts, reservedDelta, soldDelta } = transitionInventoryCounts(batch, before, after);
-    if (reservedDelta === 0 && soldDelta === 0) continue;
+    if (reservedDelta === 0 && soldDelta === 0) return;
 
     const availableBefore = batch.quantityOnHand - batch.quantityReserved;
     const availableAfter = counts.quantityOnHand - counts.quantityReserved;
@@ -134,25 +134,24 @@ async function transitionOrderInventory(tx: Tx, previousItems: InventoryItem[], 
       assertLotCanAllocate(batch, { productId: after.productId, quantity: availableBefore - availableAfter });
     }
 
-    await tx.inventoryBatch.update({
-      where: { id: batch.id },
-      data: counts
-    });
-    await tx.inventoryMovement.create({
-      data: {
-        batchId: batch.id,
-        type: soldDelta > 0 ? InventoryMovementType.ORDER_FULFILLMENT : reservedDelta > 0 ? InventoryMovementType.ORDER_RESERVATION : InventoryMovementType.ORDER_CANCELLATION,
-        quantityDelta: -soldDelta,
-        quantityBefore: batch.quantityOnHand,
-        quantityAfter: counts.quantityOnHand,
-        reason,
-        adjustedById: actor.id,
-        referenceType: "ORDER",
-        referenceId: reason
-      }
-    });
+    await Promise.all([
+      tx.inventoryBatch.update({ where: { id: batch.id }, data: counts }),
+      tx.inventoryMovement.create({
+        data: {
+          batchId: batch.id,
+          type: soldDelta > 0 ? InventoryMovementType.ORDER_FULFILLMENT : reservedDelta > 0 ? InventoryMovementType.ORDER_RESERVATION : InventoryMovementType.ORDER_CANCELLATION,
+          quantityDelta: -soldDelta,
+          quantityBefore: batch.quantityOnHand,
+          quantityAfter: counts.quantityOnHand,
+          reason,
+          adjustedById: actor.id,
+          referenceType: "ORDER",
+          referenceId: reason
+        }
+      })
+    ]);
     changedIds.push(batch.id);
-  }
+  }));
 
   return changedIds;
 }
@@ -249,13 +248,12 @@ async function recalculateAffiliateMetrics(tx: Tx, affiliateId?: string | null) 
 
 export async function createOrder(payload: OrderPayload, actor: SessionUser, request?: Request) {
   return prisma.$transaction(async (tx) => {
-    const customer = await tx.customer.findUnique({ where: { id: payload.customerId } });
+    const [customer, affiliate] = await Promise.all([
+      tx.customer.findUnique({ where: { id: payload.customerId } }),
+      payload.affiliateId ? tx.affiliate.findUnique({ where: { id: payload.affiliateId } }) : Promise.resolve(null)
+    ]);
     if (!customer) throw new Error("Customer not found.");
-
-    if (payload.affiliateId) {
-      const affiliate = await tx.affiliate.findUnique({ where: { id: payload.affiliateId } });
-      if (!affiliate) throw new Error("Affiliate not found.");
-    }
+    if (payload.affiliateId && !affiliate) throw new Error("Affiliate not found.");
 
     await validateInventory(tx, payload.items);
 
@@ -310,8 +308,7 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
     await transitionOrderInventory(tx, [], "unfulfilled", order.items, stage, actor, order.orderNumber);
 
     if (isPaidStage(stage)) {
-      await recalculateCustomerStats(tx, payload.customerId);
-      await recalculateAffiliateMetrics(tx, payload.affiliateId);
+      await Promise.all([recalculateCustomerStats(tx, payload.customerId), recalculateAffiliateMetrics(tx, payload.affiliateId)]);
     }
     await writeAuditLog({ actor, entityType: "ORDER", entityId: order.id, action: "ORDER_CREATED", after: order, request }, tx);
 
@@ -381,10 +378,12 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
     });
 
     if (isPaidStage(previousStage) || isPaidStage(stage)) {
-      await recalculateCustomerStats(tx, existing.customerId);
-      if (existing.customerId !== payload.customerId) await recalculateCustomerStats(tx, payload.customerId);
-      await recalculateAffiliateMetrics(tx, existing.affiliateId);
-      if (existing.affiliateId !== payload.affiliateId) await recalculateAffiliateMetrics(tx, payload.affiliateId);
+      await Promise.all([
+        recalculateCustomerStats(tx, existing.customerId),
+        existing.customerId !== payload.customerId ? recalculateCustomerStats(tx, payload.customerId) : Promise.resolve(),
+        recalculateAffiliateMetrics(tx, existing.affiliateId),
+        existing.affiliateId !== payload.affiliateId ? recalculateAffiliateMetrics(tx, payload.affiliateId) : Promise.resolve()
+      ]);
     }
     await writeAuditLog({ actor, entityType: "ORDER", entityId: updated.id, action: "UPDATE", before: existing, after: updated, request }, tx);
 
@@ -425,8 +424,7 @@ export async function changeOrderStatus(orderId: string, stage: OrderStage, acto
     });
 
     if (isPaidStage(previousStage) !== isPaidStage(stage)) {
-      await recalculateCustomerStats(tx, existing.customerId);
-      await recalculateAffiliateMetrics(tx, existing.affiliateId);
+      await Promise.all([recalculateCustomerStats(tx, existing.customerId), recalculateAffiliateMetrics(tx, existing.affiliateId)]);
     }
     await writeAuditLog({ actor, entityType: "ORDER", entityId: orderId, action: "STATUS_CHANGED", before: { status: previousStage }, after: { status: stage }, request }, tx);
     return { order: updated, changedBatchIds };
@@ -455,8 +453,7 @@ export async function cancelOrder(orderId: string, actor: SessionUser, request?:
       }
     });
 
-    await recalculateCustomerStats(tx, existing.customerId);
-    await recalculateAffiliateMetrics(tx, existing.affiliateId);
+    await Promise.all([recalculateCustomerStats(tx, existing.customerId), recalculateAffiliateMetrics(tx, existing.affiliateId)]);
     await writeAuditLog({ actor, entityType: "ORDER", entityId: existing.id, action: "ORDER_CANCELED", before: existing, after: canceled, request }, tx);
 
     return canceled;

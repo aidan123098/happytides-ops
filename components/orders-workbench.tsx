@@ -306,6 +306,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   async function changeStatus(order: Order, status: Order["status"]) {
     if (status === order.status || updatingStatusIds.includes(order.id)) return;
     setUpdatingStatusIds((current) => [...current, order.id]);
+    setOrders((current) => current.map((candidate) => candidate.id === order.id ? { ...candidate, status } : candidate));
     setMessage({ tone: "amber", text: `Updating ${order.orderNumber} to ${status}...` });
 
     try {
@@ -316,17 +317,19 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.order) {
+        setOrders((current) => current.map((candidate) => candidate.id === order.id ? order : candidate));
         setMessage({ tone: "red", text: payload.error ?? "Order status could not be updated." });
         return;
       }
 
-      setOrders((current) => visibleOrders(current.map((candidate) => (candidate.id === order.id ? payload.order : candidate))));
+      setOrders((current) => visibleOrders(current.map((candidate) => (candidate.id === order.id ? { ...candidate, ...payload.order } : candidate))));
       if (Array.isArray(payload.batches) && payload.batches.length > 0) {
         const changed = new Map<string, InventoryBatch>(payload.batches.map((batch: InventoryBatch) => [batch.id, batch]));
         setInventoryBatches((current) => current.map((batch) => changed.get(batch.id) ?? batch));
       }
       setMessage({ tone: "green", text: `${order.orderNumber} is now ${status}. Inventory updated.` });
     } catch {
+      setOrders((current) => current.map((candidate) => candidate.id === order.id ? order : candidate));
       setMessage({ tone: "red", text: "Order status could not be updated. Try again in a moment." });
     } finally {
       setUpdatingStatusIds((current) => current.filter((id) => id !== order.id));
@@ -356,6 +359,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     if (!confirmed) return;
 
     setRemovingOrderIds((current) => [...current, order.id]);
+    setOrders((current) => current.filter((candidate) => candidate.id !== order.id));
     setMessage({ tone: "amber", text: `Removing ${order.orderNumber}...` });
 
     try {
@@ -363,13 +367,14 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        setOrders((current) => visibleOrders([...current, order]));
         setMessage({ tone: "red", text: payload.error ?? "Order could not be removed." });
         return;
       }
 
-      setOrders((current) => current.filter((candidate) => candidate.id !== order.id));
       setMessage({ tone: "green", text: `${order.orderNumber} removed and stock restored.` });
     } catch {
+      setOrders((current) => visibleOrders([...current, order]));
       setMessage({ tone: "red", text: "Order could not be removed. Check the local dev server and try again." });
     } finally {
       setRemovingOrderIds((current) => current.filter((id) => id !== order.id));

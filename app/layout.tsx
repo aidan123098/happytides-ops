@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   description: "Internal sales, inventory, customer, and analytics dashboard for HappyTides."
 };
 
+export const preferredRegion = "pdx1";
+
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const [currentUser, pulse] = await Promise.all([getCurrentUser(), getShellPulse()]);
 
