@@ -4,12 +4,13 @@ import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, ReceiptText, Trash2 } from "lucide-react";
 import Link from "next/link";
-import type { Affiliate, Customer, InventoryBatch, Product } from "@/types/domain";
+import type { Affiliate, Customer, InventoryBatch, PaymentRecipient, Product } from "@/types/domain";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { productOptionLabel } from "@/lib/product-labels";
+import { paymentRecipientLabels, paymentRecipients } from "@/lib/payment-recipients";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency } from "@/lib/utils";
 
@@ -91,6 +92,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   const [customerForm, setCustomerForm] = useState<CustomerForm>(emptyCustomerForm);
   const [addingCustomer, setAddingCustomer] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>("Zelle");
+  const [paidTo, setPaidTo] = useState<PaymentRecipient | "">("");
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<LineItem[]>([newLineItem()]);
   const [status, setStatus] = useState<{ tone: "green" | "amber" | "red"; message: string } | null>(null);
@@ -154,7 +156,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
     return (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand - item.batch.quantityReserved;
   });
   const invalidItem = enrichedItems.find((item) => !item.product || !item.batch || item.quantity < 1 || item.unitPriceCents <= 0);
-  const orderReady = Boolean(customerId) && !addingCustomer && !invalidItem && overAllocatedItems.length === 0 && subtotalCents > 0;
+  const orderReady = Boolean(customerId) && Boolean(paidTo) && !addingCustomer && !invalidItem && overAllocatedItems.length === 0 && subtotalCents > 0;
 
   function updateProduct(id: string, productId: string) {
     const product = products.find((candidate) => candidate.id === productId);
@@ -261,6 +263,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
           customerId,
           affiliateId: affiliateId || undefined,
           paymentMethod,
+          paidTo: paidTo || undefined,
           status: "unfulfilled",
           items: enrichedItems.map((item) => ({
             productId: item.productId,
@@ -484,6 +487,21 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
               </select>
             </label>
             <label className="block">
+              <span className="text-xs font-semibold uppercase text-slate-500">Who got paid</span>
+              <select
+                className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30"
+                value={paidTo}
+                onChange={(event) => setPaidTo(event.target.value as PaymentRecipient | "")}
+              >
+                <option value="">Select person</option>
+                {paymentRecipients.map((recipient) => (
+                  <option key={recipient} value={recipient}>
+                    {paymentRecipientLabels[recipient]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
               <span className="text-xs font-semibold uppercase text-slate-500">Notes</span>
               <textarea
                 className="mt-1 min-h-24 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-ring/30"
@@ -507,7 +525,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
             </Button>
             {!orderReady ? (
               <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
-                Select a customer and complete each line with a SKU, quantity, and available stock before recording.
+                Select a customer, who got paid, and complete each line with a SKU, quantity, and available stock before recording.
               </div>
             ) : null}
             {status ? (

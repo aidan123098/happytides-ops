@@ -72,6 +72,8 @@ export type Customer = {
 
 export type OrderStage = "unfulfilled" | "paid" | "packed" | "shipped" | "delivered";
 
+export type PaymentRecipient = "imran" | "dan" | "jeremy" | "aidan";
+
 export type Order = {
   id: string;
   orderNumber: string;
@@ -95,6 +97,7 @@ export type Order = {
   taxCents: number;
   totalCents: number;
   paymentMethod: "Processor" | "Cash" | "Zelle" | "Venmo" | "ACH" | "Crypto" | "Other";
+  paidTo?: PaymentRecipient;
   squarePaymentId?: string;
   squareOrderId?: string;
   paymentStatus: "paid" | "pending" | "refunded" | "canceled";

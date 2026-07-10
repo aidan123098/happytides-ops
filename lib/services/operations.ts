@@ -16,6 +16,7 @@ type OrderPayload = {
   affiliateId?: string;
   locationId?: string;
   paymentMethod: "Processor" | "Cash" | "Zelle" | "Venmo" | "ACH" | "Crypto" | "Other";
+  paidTo?: string;
   squarePaymentId?: string;
   status?: OrderStage;
   fulfillmentStatus?: Exclude<OrderStage, "paid">;
@@ -274,6 +275,7 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
         discountCents,
         taxCents: 0,
         totalCents,
+        paidTo: payload.paidTo,
         paymentStatus: persistedStage.paymentStatus,
         fulfillmentStatus: persistedStage.fulfillmentStatus,
         status: persistedStage.status,
@@ -344,6 +346,7 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
         subtotalCents,
         discountCents,
         totalCents,
+        paidTo: payload.paidTo,
         orderSource: payload.locationId ?? existing.orderSource,
         paymentStatus: persistedStage.paymentStatus,
         fulfillmentStatus: persistedStage.fulfillmentStatus,

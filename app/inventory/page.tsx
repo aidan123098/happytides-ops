@@ -6,6 +6,7 @@ import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { paymentRecipientLabel, paymentRecipientLabels, paymentRecipients } from "@/lib/payment-recipients";
 import { getInventoryBatches, getInventoryMovements, getOrders, getProducts } from "@/lib/services/operational-data";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
@@ -30,6 +31,17 @@ export default async function InventoryPage() {
   const reserved = inventoryBatches.reduce((sum, batch) => sum + batch.quantityReserved, 0);
   const lowStock = inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold);
   const inventoryValue = inventoryBatches.reduce((sum, batch) => sum + batch.quantityOnHand * batch.costPerVialCents, 0);
+  const paymentSummary = orders
+    .filter((order) => order.orderNumber !== "N/A" && order.paymentStatus !== "canceled" && order.fulfillmentStatus !== "canceled")
+    .reduce((summary, order) => {
+      const key = order.paidTo ?? "unassigned";
+      const current = summary.get(key) ?? { totalCents: 0, orders: 0 };
+      current.totalCents += order.totalCents;
+      current.orders += 1;
+      summary.set(key, current);
+      return summary;
+    }, new Map<string, { totalCents: number; orders: number }>());
+  const assignedPaymentTotal = paymentRecipients.reduce((sum, recipient) => sum + (paymentSummary.get(recipient)?.totalCents ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -118,6 +130,36 @@ export default async function InventoryPage() {
               </tr>
             ))}
           </DataTable>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-700 marker:hidden">
+              <span>Who got paid totals</span>
+              <span className="text-xs font-medium text-slate-500">{formatCurrency(assignedPaymentTotal)} assigned</span>
+            </summary>
+            <div className="border-t border-slate-200 px-4 py-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {paymentRecipients.map((recipient) => {
+                  const row = paymentSummary.get(recipient) ?? { totalCents: 0, orders: 0 };
+                  return (
+                    <div key={recipient} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <div className="text-xs font-semibold uppercase text-slate-500">{paymentRecipientLabels[recipient]}</div>
+                      <div className="mt-1 text-lg font-semibold text-slate-950">{formatCurrency(row.totalCents)}</div>
+                      <div className="mt-1 text-xs text-slate-500">{formatNumber(row.orders)} orders</div>
+                    </div>
+                  );
+                })}
+              </div>
+              {paymentSummary.has("unassigned") ? (
+                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {paymentRecipientLabel(null)}: {formatCurrency(paymentSummary.get("unassigned")?.totalCents ?? 0)} across {formatNumber(paymentSummary.get("unassigned")?.orders ?? 0)} older orders.
+                </div>
+              ) : null}
+            </div>
+          </details>
         </CardContent>
       </Card>
     </div>

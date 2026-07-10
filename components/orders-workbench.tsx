@@ -2,13 +2,14 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { Edit3, Filter, Save, Trash2, X } from "lucide-react";
-import type { InventoryBatch, Order, Product } from "@/types/domain";
+import type { InventoryBatch, Order, PaymentRecipient, Product } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { productOptionLabel } from "@/lib/product-labels";
+import { paymentRecipientLabels, paymentRecipients } from "@/lib/payment-recipients";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency, formatCurrencyOrNA, formatNumber, formatNumberOrNA } from "@/lib/utils";
 
@@ -82,6 +83,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editLines, setEditLines] = useState<EditableLine[]>([]);
   const [editPaymentMethod, setEditPaymentMethod] = useState<(typeof paymentMethods)[number]>("Zelle");
+  const [editPaidTo, setEditPaidTo] = useState<PaymentRecipient | "">("");
   const [editStatus, setEditStatus] = useState<Order["status"]>("unfulfilled");
   const [editCreatedAt, setEditCreatedAt] = useState("");
   const [editNotes, setEditNotes] = useState("");
@@ -216,6 +218,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     setEditingOrderId(order.id);
     setEditLines(hydrateLine(order));
     setEditPaymentMethod(paymentMethods.includes(order.paymentMethod as (typeof paymentMethods)[number]) ? (order.paymentMethod as (typeof paymentMethods)[number]) : "Other");
+    setEditPaidTo(order.paidTo ?? "");
     setEditStatus(order.status);
     setEditCreatedAt(dateInputValue(order.createdAt));
     setEditNotes(order.notes ?? "");
@@ -266,6 +269,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           customerId: orders.find((order) => order.id === orderId)?.customerId ?? "cust_placeholder",
           affiliateId: orders.find((order) => order.id === orderId)?.affiliateId,
           paymentMethod: editPaymentMethod,
+          paidTo: editPaidTo || undefined,
           status: editStatus,
           createdAt: editCreatedAt,
           items: editLines.map((line) => ({
@@ -377,7 +381,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
 
     return (
       <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
           <label>
             <span className="text-xs font-semibold uppercase text-slate-500">Order date</span>
             <Input className="mt-1" type="date" value={editCreatedAt} onChange={(event) => setEditCreatedAt(event.target.value)} />
@@ -387,6 +391,15 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editPaymentMethod} onChange={(event) => setEditPaymentMethod(event.target.value as (typeof paymentMethods)[number])}>
               {paymentMethods.map((method) => (
                 <option key={method} value={method}>{method}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">Who got paid</span>
+            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editPaidTo} onChange={(event) => setEditPaidTo(event.target.value as PaymentRecipient | "")}>
+              <option value="">Unassigned</option>
+              {paymentRecipients.map((recipient) => (
+                <option key={recipient} value={recipient}>{paymentRecipientLabels[recipient]}</option>
               ))}
             </select>
           </label>

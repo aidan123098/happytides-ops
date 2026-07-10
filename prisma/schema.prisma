@@ -724,6 +724,7 @@ model Order {
   accountId         String?           @map("account_id")
   account           Account?          @relation(fields: [accountId], references: [id])
   orderSource       String?           @map("order_source")
+  paidTo            String?           @map("paid_to")
   affiliateId       String?           @map("affiliate_id")
   affiliate         Affiliate?        @relation(fields: [affiliateId], references: [id])
   squareOrderId     String?           @unique @map("square_order_id")

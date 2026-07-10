@@ -468,6 +468,7 @@ export const orders: Order[] = [
     taxCents: 0,
     totalCents: 0,
     paymentMethod: "Other",
+    paidTo: undefined,
     squarePaymentId: "N/A",
     squareOrderId: "N/A",
     paymentStatus: "pending",

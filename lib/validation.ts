@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { paymentRecipients } from "@/lib/payment-recipients";
 
 const orderStatusSchema = z.enum(["unfulfilled", "paid", "packed", "shipped", "delivered"]);
+const paidToSchema = z.enum(paymentRecipients);
 
 const optionalEmailSchema = z.preprocess((value) => value === "" ? "N/A" : value, z.union([z.string().email(), z.literal("N/A")]).optional());
 const optionalPhoneSchema = z.preprocess((value) => value === "" ? "N/A" : value, z.union([z.string().min(1), z.literal("N/A")]).optional());
@@ -68,6 +70,7 @@ export const orderInputSchema = z.object({
   affiliateId: z.string().min(1).optional(),
   locationId: z.string().optional(),
   paymentMethod: z.enum(["Processor", "Cash", "Zelle", "Venmo", "ACH", "Crypto", "Other"]),
+  paidTo: paidToSchema.optional(),
   squarePaymentId: z.string().optional(),
   status: orderStatusSchema.optional(),
   fulfillmentStatus: z.enum(["unfulfilled", "packed", "shipped", "delivered"]).optional(),

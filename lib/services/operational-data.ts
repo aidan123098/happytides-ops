@@ -286,6 +286,7 @@ function orderToDomain(order: OrderWithRelations): Order {
     taxCents: order.taxCents,
     totalCents: order.totalCents,
     paymentMethod: payment ? paymentMethodMap[payment.method] : "Other",
+    paidTo: (order.paidTo as Order["paidTo"]) ?? undefined,
     squarePaymentId: payment?.squarePaymentId ?? undefined,
     squareOrderId: order.squareOrderId ?? undefined,
     paymentStatus: paymentStatusMap[order.paymentStatus] ?? "pending",

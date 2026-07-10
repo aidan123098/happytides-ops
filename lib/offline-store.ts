@@ -9,6 +9,7 @@ type OrderPayload = {
   affiliateId?: string;
   locationId?: string;
   paymentMethod: Order["paymentMethod"];
+  paidTo?: Order["paidTo"];
   squarePaymentId?: string;
   status?: OrderStage;
   fulfillmentStatus?: Exclude<OrderStage, "paid">;
@@ -253,6 +254,7 @@ function buildOrder(payload: OrderPayload, actor: SessionUser, existing?: Order)
     taxCents: 0,
     totalCents: subtotalCents - discountCents,
     paymentMethod: payload.paymentMethod,
+    paidTo: payload.paidTo,
     squarePaymentId: payload.squarePaymentId,
     paymentStatus: status === "unfulfilled" ? "pending" : "paid",
     fulfillmentStatus: status === "delivered" ? "delivered" : status === "shipped" ? "shipped" : status === "packed" ? "packed" : "unfulfilled",
