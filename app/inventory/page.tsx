@@ -25,6 +25,10 @@ function movementLabel(type: string) {
   return type.replaceAll("_", " ").toLowerCase();
 }
 
+function isPaymentTrackedStatus(status: string) {
+  return status === "paid" || status === "packed" || status === "shipped" || status === "delivered";
+}
+
 export default async function InventoryPage() {
   const [inventoryBatches, inventoryMovements, orders, products] = await Promise.all([getInventoryBatches(), getInventoryMovements(), getOrders(), getProducts()]);
   const totalOnHand = inventoryBatches.reduce((sum, batch) => sum + batch.quantityOnHand, 0);
@@ -32,15 +36,15 @@ export default async function InventoryPage() {
   const lowStock = inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold);
   const inventoryValue = inventoryBatches.reduce((sum, batch) => sum + batch.quantityOnHand * batch.costPerVialCents, 0);
   const paymentSummary = orders
-    .filter((order) => order.orderNumber !== "N/A" && order.paymentStatus !== "canceled" && order.fulfillmentStatus !== "canceled")
+    .filter((order) => order.orderNumber !== "N/A" && isPaymentTrackedStatus(order.status) && order.paymentStatus !== "canceled" && order.fulfillmentStatus !== "canceled")
     .reduce((summary, order) => {
       const key = order.paidTo ?? "unassigned";
-      const current = summary.get(key) ?? { totalCents: 0, orders: 0 };
+      const current = summary.get(key) ?? { totalCents: 0, orders: [] as typeof orders };
       current.totalCents += order.totalCents;
-      current.orders += 1;
+      current.orders.push(order);
       summary.set(key, current);
       return summary;
-    }, new Map<string, { totalCents: number; orders: number }>());
+    }, new Map<string, { totalCents: number; orders: typeof orders }>());
   const assignedPaymentTotal = paymentRecipients.reduce((sum, recipient) => sum + (paymentSummary.get(recipient)?.totalCents ?? 0), 0);
 
   return (
@@ -143,20 +147,48 @@ export default async function InventoryPage() {
             <div className="border-t border-slate-200 px-4 py-3">
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {paymentRecipients.map((recipient) => {
-                  const row = paymentSummary.get(recipient) ?? { totalCents: 0, orders: 0 };
+                  const row = paymentSummary.get(recipient) ?? { totalCents: 0, orders: [] };
                   return (
-                    <div key={recipient} className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                      <div className="text-xs font-semibold uppercase text-slate-500">{paymentRecipientLabels[recipient]}</div>
-                      <div className="mt-1 text-lg font-semibold text-slate-950">{formatCurrency(row.totalCents)}</div>
-                      <div className="mt-1 text-xs text-slate-500">{formatNumber(row.orders)} orders</div>
-                    </div>
+                    <details key={recipient} className="rounded-md border border-slate-200 bg-slate-50">
+                      <summary className="cursor-pointer list-none p-3 marker:hidden">
+                        <div className="text-xs font-semibold uppercase text-slate-500">{paymentRecipientLabels[recipient]}</div>
+                        <div className="mt-1 text-lg font-semibold text-slate-950">{formatCurrency(row.totalCents)}</div>
+                        <div className="mt-1 text-xs text-slate-500">{formatNumber(row.orders.length)} paid-or-later orders</div>
+                      </summary>
+                      <div className="space-y-2 border-t border-slate-200 px-3 py-2">
+                        {row.orders.length > 0 ? row.orders.map((order) => (
+                          <div key={order.id} className="rounded-md bg-white px-2 py-1.5 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-slate-950">{order.customerName}</span>
+                              <span className="font-medium text-slate-700">{formatCurrency(order.totalCents)}</span>
+                            </div>
+                            <div className="mt-0.5 text-slate-500">{order.orderNumber} / {order.status}</div>
+                          </div>
+                        )) : (
+                          <div className="rounded-md bg-white px-2 py-1.5 text-xs text-slate-500">No paid orders assigned.</div>
+                        )}
+                      </div>
+                    </details>
                   );
                 })}
               </div>
               {paymentSummary.has("unassigned") ? (
-                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  {paymentRecipientLabel(null)}: {formatCurrency(paymentSummary.get("unassigned")?.totalCents ?? 0)} across {formatNumber(paymentSummary.get("unassigned")?.orders ?? 0)} older orders.
-                </div>
+                <details className="mt-2 rounded-md border border-amber-200 bg-amber-50 text-sm text-amber-800">
+                  <summary className="cursor-pointer list-none px-3 py-2 marker:hidden">
+                    {paymentRecipientLabel(null)}: {formatCurrency(paymentSummary.get("unassigned")?.totalCents ?? 0)} across {formatNumber(paymentSummary.get("unassigned")?.orders.length ?? 0)} paid-or-later orders.
+                  </summary>
+                  <div className="space-y-2 border-t border-amber-200 px-3 py-2">
+                    {paymentSummary.get("unassigned")?.orders.map((order) => (
+                      <div key={order.id} className="rounded-md bg-white/80 px-2 py-1.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-950">{order.customerName}</span>
+                          <span className="font-medium text-slate-700">{formatCurrency(order.totalCents)}</span>
+                        </div>
+                        <div className="mt-0.5 text-slate-500">{order.orderNumber} / {order.status}</div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
               ) : null}
             </div>
           </details>
