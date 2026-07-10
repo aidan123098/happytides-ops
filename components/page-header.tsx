@@ -3,7 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type PageHeaderTone = "blue" | "green" | "amber" | "rose" | "slate";
+type PageHeaderTone = "blue" | "green" | "amber" | "rose" | "cyan" | "violet" | "slate";
 
 type PageHeaderStat = {
   label: string;
@@ -39,6 +39,14 @@ const toneClasses: Record<PageHeaderTone, { icon: string; accent: string }> = {
   rose: {
     icon: "bg-rose-50 text-rose-700 ring-rose-100",
     accent: "bg-rose-500"
+  },
+  cyan: {
+    icon: "bg-cyan-50 text-cyan-700 ring-cyan-100",
+    accent: "bg-cyan-500"
+  },
+  violet: {
+    icon: "bg-violet-50 text-violet-700 ring-violet-100",
+    accent: "bg-violet-500"
   },
   slate: {
     icon: "bg-slate-100 text-slate-700 ring-slate-200",

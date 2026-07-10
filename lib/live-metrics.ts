@@ -45,7 +45,7 @@ function unitsInOrder(order: Order) {
 function inventoryHealth(batches: InventoryBatch[]) {
   const totalOnHand = batches.reduce((sum, batch) => sum + batch.quantityOnHand, 0);
   const reserved = batches.reduce((sum, batch) => sum + batch.quantityReserved, 0);
-  const lowStock = batches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold);
+  const lowStock = batches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold);
 
   return { totalOnHand, reserved, lowStock };
 }
@@ -230,7 +230,7 @@ export function getDashboardData(store: MetricsStore) {
       unitsSoldToday: todayOrders.reduce((sum, order) => sum + unitsInOrder(order), 0),
       topToday,
       topWeek,
-      lowStock: store.inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold),
+      lowStock: store.inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold),
       repeatRate: derivedCustomers.length ? Math.round((returningCustomers / derivedCustomers.length) * 100) : 0,
       newCustomers,
       returningCustomers

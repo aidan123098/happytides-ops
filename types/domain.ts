@@ -70,6 +70,8 @@ export type Customer = {
   status: "new" | "returning" | "VIP" | "inactive";
 };
 
+export type OrderStage = "unfulfilled" | "paid" | "packed" | "shipped" | "delivered";
+
 export type Order = {
   id: string;
   orderNumber: string;
@@ -97,6 +99,7 @@ export type Order = {
   squareOrderId?: string;
   paymentStatus: "paid" | "pending" | "refunded" | "canceled";
   fulfillmentStatus: "unfulfilled" | "packed" | "shipped" | "delivered" | "fulfilled" | "canceled";
+  status: OrderStage;
   createdAt: string;
   notes?: string;
 };

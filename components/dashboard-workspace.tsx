@@ -123,8 +123,8 @@ export function DashboardWorkspace({ initialDashboard }: { initialDashboard: Das
           </CardHeader>
           <CardContent className="space-y-3">
             {[
-              ["On hand", formatNumber(inventoryHealth.totalOnHand), "Available stock quantity", "green"],
-              ["Reserved", formatNumber(inventoryHealth.reserved), "Committed but not sold", "blue"]
+              ["Total", formatNumber(inventoryHealth.totalOnHand), "Physical stock in storage", "green"],
+              ["Reserved (Paid)", formatNumber(inventoryHealth.reserved), "Paid orders awaiting packing", "blue"]
             ].map(([label, value, detail, tone]) => (
               <div key={label} className="rounded-md border border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3">

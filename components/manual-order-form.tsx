@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, ReceiptText, Trash2 } from "lucide-react";
 import Link from "next/link";
 import type { Affiliate, Customer, InventoryBatch, Product } from "@/types/domain";
@@ -80,6 +80,7 @@ function newLineItem(): LineItem {
 }
 
 export function ManualOrderForm({ products, inventoryBatches, customers: initialCustomers, affiliates }: ManualOrderFormProps) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const realInitialCustomers = initialCustomers.filter((customer) => customer.id !== "cust_placeholder" && (customer.firstName !== "N/A" || customer.email !== "N/A" || customer.phone !== "N/A"));
   const realAffiliates = affiliates.filter((affiliate) => affiliate.id !== "aff_placeholder" && affiliate.name !== "N/A" && affiliate.code !== "N/A");
@@ -260,7 +261,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
           customerId,
           affiliateId: affiliateId || undefined,
           paymentMethod,
-          fulfillmentStatus: "unfulfilled",
+          status: "unfulfilled",
           items: enrichedItems.map((item) => ({
             productId: item.productId,
             inventoryBatchId: item.batchId,
@@ -285,7 +286,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
 
       const returnTo = searchParams.get("returnTo") ?? "/orders";
       setStatus({ tone: "green", message: `Order ${payload.order.orderNumber} recorded locally for ${formatCurrency(payload.order.totalCents)}.` });
-      window.location.assign(returnTo);
+      router.push(returnTo);
     } catch {
       setStatus({ tone: "red", message: "Order could not be recorded. Check the local dev server and try again." });
     } finally {

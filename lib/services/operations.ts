@@ -3,6 +3,8 @@ import { FulfillmentStatus, InventoryMovementType, InventoryStatus, PaymentMetho
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
+import { transitionInventoryCounts } from "@/lib/inventory-counts";
+import { isPaidStage, isReservedStage, isSoldStage, orderStageFromPersistence, persistenceForOrderStage, type OrderStage } from "@/lib/order-stage";
 import { assertLotCanAllocate } from "@/lib/services/inventory-policy";
 import type { Customer } from "@/types/domain";
 
@@ -15,7 +17,8 @@ type OrderPayload = {
   locationId?: string;
   paymentMethod: "Processor" | "Cash" | "Zelle" | "Venmo" | "ACH" | "Crypto" | "Other";
   squarePaymentId?: string;
-  fulfillmentStatus?: "unfulfilled" | "packed" | "shipped" | "delivered";
+  status?: OrderStage;
+  fulfillmentStatus?: Exclude<OrderStage, "paid">;
   createdAt?: string;
   items: Array<{
     productId: string;
@@ -27,34 +30,14 @@ type OrderPayload = {
   notes?: string;
 };
 
-function fulfillmentStatusForStage(stage: OrderPayload["fulfillmentStatus"]) {
-  if (stage === "packed" || stage === "shipped") return FulfillmentStatus.PACKED;
-  if (stage === "delivered") return FulfillmentStatus.FULFILLED;
-  return FulfillmentStatus.UNFULFILLED;
-}
-
-function orderStatusForStage(stage: OrderPayload["fulfillmentStatus"]) {
-  if (stage === "packed") return OrderStatus.READY_TO_SHIP;
-  if (stage === "shipped") return OrderStatus.SHIPPED;
-  if (stage === "delivered") return OrderStatus.DELIVERED;
-  return OrderStatus.PAID;
-}
-
-function isDelivered(stage: OrderPayload["fulfillmentStatus"]) {
-  return stage === "delivered";
+function requestedStage(payload: Pick<OrderPayload, "status" | "fulfillmentStatus">, fallback: OrderStage = "unfulfilled") {
+  return payload.status ?? payload.fulfillmentStatus ?? fallback;
 }
 
 function parsedCreatedAt(value?: string) {
   if (!value) return undefined;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? undefined : date;
-}
-
-function stageFromExisting(order: { fulfillmentStatus: FulfillmentStatus; status: OrderStatus }): OrderPayload["fulfillmentStatus"] {
-  if (order.status === OrderStatus.SHIPPED) return "shipped";
-  if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.COMPLETED || order.fulfillmentStatus === FulfillmentStatus.FULFILLED) return "delivered";
-  if (order.fulfillmentStatus === FulfillmentStatus.PACKED || order.status === OrderStatus.READY_TO_SHIP || order.status === OrderStatus.PACKING) return "packed";
-  return "unfulfilled";
 }
 
 const paymentMethodMap: Record<OrderPayload["paymentMethod"], PaymentMethod> = {
@@ -100,147 +83,80 @@ function aggregateByBatch(items: OrderPayload["items"]) {
   return aggregate;
 }
 
-async function reserveBatchForOrder(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
-  const batch = await tx.inventoryBatch.findUniqueOrThrow({ where: { id: batchId } });
-  const quantityBefore = batch.quantityOnHand - batch.quantityReserved;
+type InventoryItem = { inventoryBatchId: string | null; productId: string; quantity: number };
 
-  await tx.inventoryBatch.update({
-    where: { id: batchId },
-    data: {
-      quantityReserved: { increment: quantity }
-    }
-  });
-
-  await tx.inventoryMovement.create({
-    data: {
-      batchId,
-      type: InventoryMovementType.ORDER_RESERVATION,
-      quantityDelta: 0,
-      quantityBefore,
-      quantityAfter: quantityBefore - quantity,
-      reason,
-      orderItemId,
-      adjustedById: actor.id,
-      referenceType: "ORDER",
-      referenceId: reason
-    }
-  });
-}
-
-async function sellReservedBatchForOrder(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
-  const batch = await tx.inventoryBatch.findUniqueOrThrow({ where: { id: batchId } });
-  const quantityBefore = batch.quantityOnHand;
-  const quantityAfter = quantityBefore - quantity;
-
-  if (quantityAfter < 0) {
-    throw new Error("Inventory cannot go negative.");
-  }
-
-  await tx.inventoryBatch.update({
-    where: { id: batchId },
-    data: {
-      quantityOnHand: quantityAfter,
-      quantityReserved: { decrement: Math.min(batch.quantityReserved, quantity) },
-      quantitySold: { increment: quantity }
-    }
-  });
-
-  await tx.inventoryMovement.create({
-    data: {
-      batchId,
-      type: InventoryMovementType.ORDER_FULFILLMENT,
-      quantityDelta: -quantity,
-      quantityBefore,
-      quantityAfter,
-      reason,
-      orderItemId,
-      adjustedById: actor.id,
-      referenceType: "ORDER",
-      referenceId: reason
-    }
-  });
-}
-
-async function releaseReservedBatchForOrder(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
-  const batch = await tx.inventoryBatch.findUniqueOrThrow({ where: { id: batchId } });
-  const quantityBefore = batch.quantityOnHand - batch.quantityReserved;
-  const release = Math.min(batch.quantityReserved, quantity);
-
-  await tx.inventoryBatch.update({
-    where: { id: batchId },
-    data: {
-      quantityReserved: { decrement: release }
-    }
-  });
-
-  await tx.inventoryMovement.create({
-    data: {
-      batchId,
-      type: InventoryMovementType.ORDER_CANCELLATION,
-      quantityDelta: 0,
-      quantityBefore,
-      quantityAfter: quantityBefore + release,
-      reason,
-      orderItemId,
-      adjustedById: actor.id,
-      referenceType: "ORDER",
-      referenceId: reason
-    }
-  });
-}
-
-async function restoreSoldBatchForOrder(tx: Tx, batchId: string, quantity: number, actor: SessionUser, reason: string, orderItemId?: string) {
-  const batch = await tx.inventoryBatch.findUniqueOrThrow({ where: { id: batchId } });
-  const quantityBefore = batch.quantityOnHand;
-  const quantityAfter = quantityBefore + quantity;
-
-  await tx.inventoryBatch.update({
-    where: { id: batchId },
-    data: {
-      quantityOnHand: quantityAfter,
-      quantitySold: { decrement: Math.min(batch.quantitySold, quantity) }
-    }
-  });
-
-  await tx.inventoryMovement.create({
-    data: {
-      batchId,
-      type: InventoryMovementType.ORDER_CANCELLATION,
-      quantityDelta: quantity,
-      quantityBefore,
-      quantityAfter,
-      reason,
-      orderItemId,
-      adjustedById: actor.id,
-      referenceType: "ORDER",
-      referenceId: reason
-    }
-  });
-}
-
-async function releaseOrderInventory(tx: Tx, items: Array<{ inventoryBatchId: string | null; quantity: number; id?: string }>, stage: OrderPayload["fulfillmentStatus"], actor: SessionUser, reason: string) {
+function inventoryByBatch(items: InventoryItem[], stage: OrderStage) {
+  const result = new Map<string, { productId: string; reserved: number; sold: number }>();
+  if (!isReservedStage(stage) && !isSoldStage(stage)) return result;
   for (const item of items) {
     if (!item.inventoryBatchId) continue;
-    if (isDelivered(stage)) {
-      await restoreSoldBatchForOrder(tx, item.inventoryBatchId, item.quantity, actor, reason, item.id);
-    } else {
-      await releaseReservedBatchForOrder(tx, item.inventoryBatchId, item.quantity, actor, reason, item.id);
-    }
+    const current = result.get(item.inventoryBatchId) ?? { productId: item.productId, reserved: 0, sold: 0 };
+    if (current.productId !== item.productId) throw new Error("A lot cannot be allocated to multiple products in the same order.");
+    if (isReservedStage(stage)) current.reserved += item.quantity;
+    if (isSoldStage(stage)) current.sold += item.quantity;
+    result.set(item.inventoryBatchId, current);
   }
+  return result;
 }
 
-async function applyOrderInventory(tx: Tx, items: Array<{ inventoryBatchId: string | null; quantity: number; id?: string }>, stage: OrderPayload["fulfillmentStatus"], actor: SessionUser, reason: string) {
+function inventoryAllowance(items: InventoryItem[], stage: OrderStage) {
+  const allowance = new Map<string, number>();
+  if (!isReservedStage(stage) && !isSoldStage(stage)) return allowance;
   for (const item of items) {
     if (!item.inventoryBatchId) continue;
-    if (isDelivered(stage)) {
-      await sellReservedBatchForOrder(tx, item.inventoryBatchId, item.quantity, actor, reason, item.id);
-    } else {
-      await reserveBatchForOrder(tx, item.inventoryBatchId, item.quantity, actor, reason, item.id);
-    }
+    allowance.set(item.inventoryBatchId, (allowance.get(item.inventoryBatchId) ?? 0) + item.quantity);
   }
+  return allowance;
 }
 
-async function validateInventory(tx: Tx, items: OrderPayload["items"]) {
+async function transitionOrderInventory(tx: Tx, previousItems: InventoryItem[], previousStage: OrderStage, nextItems: InventoryItem[], nextStage: OrderStage, actor: SessionUser, reason: string) {
+  const previous = inventoryByBatch(previousItems, previousStage);
+  const next = inventoryByBatch(nextItems, nextStage);
+  const ids = [...new Set([...previous.keys(), ...next.keys()])];
+  if (ids.length === 0) return [];
+
+  const batches = await tx.inventoryBatch.findMany({ where: { id: { in: ids }, archivedAt: null } });
+  if (batches.length !== ids.length) throw new Error("Selected inventory lot was not found.");
+  const changedIds: string[] = [];
+
+  for (const batch of batches) {
+    const before = previous.get(batch.id) ?? { productId: batch.productId, reserved: 0, sold: 0 };
+    const after = next.get(batch.id) ?? { productId: batch.productId, reserved: 0, sold: 0 };
+    if (before.productId !== batch.productId || after.productId !== batch.productId) throw new Error("Selected lot does not belong to the selected product.");
+
+    const { counts, reservedDelta, soldDelta } = transitionInventoryCounts(batch, before, after);
+    if (reservedDelta === 0 && soldDelta === 0) continue;
+
+    const availableBefore = batch.quantityOnHand - batch.quantityReserved;
+    const availableAfter = counts.quantityOnHand - counts.quantityReserved;
+    if (availableAfter < availableBefore) {
+      assertLotCanAllocate(batch, { productId: after.productId, quantity: availableBefore - availableAfter });
+    }
+
+    await tx.inventoryBatch.update({
+      where: { id: batch.id },
+      data: counts
+    });
+    await tx.inventoryMovement.create({
+      data: {
+        batchId: batch.id,
+        type: soldDelta > 0 ? InventoryMovementType.ORDER_FULFILLMENT : reservedDelta > 0 ? InventoryMovementType.ORDER_RESERVATION : InventoryMovementType.ORDER_CANCELLATION,
+        quantityDelta: -soldDelta,
+        quantityBefore: batch.quantityOnHand,
+        quantityAfter: counts.quantityOnHand,
+        reason,
+        adjustedById: actor.id,
+        referenceType: "ORDER",
+        referenceId: reason
+      }
+    });
+    changedIds.push(batch.id);
+  }
+
+  return changedIds;
+}
+
+async function validateInventory(tx: Tx, items: OrderPayload["items"], allowance = new Map<string, number>()) {
   const aggregate = aggregateByBatch(items);
   const batches = await tx.inventoryBatch.findMany({
     where: { id: { in: [...aggregate.keys()] } }
@@ -253,7 +169,7 @@ async function validateInventory(tx: Tx, items: OrderPayload["items"]) {
       throw new Error("Selected inventory lot was not found.");
     }
 
-    assertLotCanAllocate(batch, requested);
+    assertLotCanAllocate({ ...batch, quantityOnHand: batch.quantityOnHand + (allowance.get(batchId) ?? 0) }, requested);
   }
 }
 
@@ -346,7 +262,8 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
     const discountCents = payload.items.reduce((sum, item) => sum + item.discountCents, 0);
     const totalCents = subtotalCents - discountCents;
     const orderNumber = `HT-${Date.now().toString().slice(-6)}`;
-    const fulfillmentStage = payload.fulfillmentStatus ?? "unfulfilled";
+    const stage = requestedStage(payload);
+    const persistedStage = persistenceForOrderStage(stage);
     const createdAt = parsedCreatedAt(payload.createdAt);
     const order = await tx.order.create({
       data: {
@@ -357,9 +274,9 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
         discountCents,
         taxCents: 0,
         totalCents,
-        paymentStatus: PaymentStatus.PAID,
-        fulfillmentStatus: fulfillmentStatusForStage(fulfillmentStage),
-        status: orderStatusForStage(fulfillmentStage),
+        paymentStatus: persistedStage.paymentStatus,
+        fulfillmentStatus: persistedStage.fulfillmentStatus,
+        status: persistedStage.status,
         orderSource: payload.locationId ?? "Manual entry",
         affiliateId: payload.affiliateId,
         notes: payload.notes,
@@ -378,20 +295,22 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
         payments: {
           create: {
             method: paymentMethodMap[payload.paymentMethod],
-            status: PaymentStatus.PAID,
+            status: persistedStage.paymentStatus,
             amountCents: totalCents,
             squarePaymentId: payload.squarePaymentId,
-            paidAt: new Date()
+            paidAt: isPaidStage(stage) ? new Date() : null
           }
         }
       },
       include: { items: true }
     });
 
-    await applyOrderInventory(tx, order.items, fulfillmentStage, actor, order.orderNumber);
+    await transitionOrderInventory(tx, [], "unfulfilled", order.items, stage, actor, order.orderNumber);
 
-    await recalculateCustomerStats(tx, payload.customerId);
-    await recalculateAffiliateMetrics(tx, payload.affiliateId);
+    if (isPaidStage(stage)) {
+      await recalculateCustomerStats(tx, payload.customerId);
+      await recalculateAffiliateMetrics(tx, payload.affiliateId);
+    }
     await writeAuditLog({ actor, entityType: "ORDER", entityId: order.id, action: "ORDER_CREATED", after: order, request }, tx);
 
     return order;
@@ -406,14 +325,15 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
     });
     if (!existing || existing.archivedAt) throw new Error("Order not found.");
 
-    await releaseOrderInventory(tx, existing.items, stageFromExisting(existing), actor, existing.orderNumber);
-
-    await validateInventory(tx, payload.items);
+    const previousStage = orderStageFromPersistence(existing);
+    const stage = requestedStage(payload, previousStage);
+    await validateInventory(tx, payload.items, inventoryAllowance(existing.items, previousStage));
+    const changedBatchIds = await transitionOrderInventory(tx, existing.items, previousStage, payload.items, stage, actor, existing.orderNumber);
 
     const subtotalCents = payload.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
     const discountCents = payload.items.reduce((sum, item) => sum + item.discountCents, 0);
     const totalCents = subtotalCents - discountCents;
-    const fulfillmentStage = payload.fulfillmentStatus ?? stageFromExisting(existing);
+    const persistedStage = persistenceForOrderStage(stage);
     const createdAt = parsedCreatedAt(payload.createdAt);
 
     await tx.orderItem.deleteMany({ where: { orderId } });
@@ -425,8 +345,9 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
         discountCents,
         totalCents,
         orderSource: payload.locationId ?? existing.orderSource,
-        fulfillmentStatus: fulfillmentStatusForStage(fulfillmentStage),
-        status: orderStatusForStage(fulfillmentStage),
+        paymentStatus: persistedStage.paymentStatus,
+        fulfillmentStatus: persistedStage.fulfillmentStatus,
+        status: persistedStage.status,
         affiliateId: payload.affiliateId,
         notes: payload.notes,
         createdAt,
@@ -447,7 +368,8 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
             data: {
               method: paymentMethodMap[payload.paymentMethod],
               amountCents: totalCents,
-              status: PaymentStatus.PAID
+              status: persistedStage.paymentStatus,
+              paidAt: isPaidStage(stage) ? existing.payments[0]?.paidAt ?? new Date() : null
             }
           }
         }
@@ -455,15 +377,56 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
       include: { items: true }
     });
 
-    await applyOrderInventory(tx, updated.items, fulfillmentStage, actor, updated.orderNumber);
-
-    await recalculateCustomerStats(tx, existing.customerId);
-    if (existing.customerId !== payload.customerId) await recalculateCustomerStats(tx, payload.customerId);
-    await recalculateAffiliateMetrics(tx, existing.affiliateId);
-    await recalculateAffiliateMetrics(tx, payload.affiliateId);
+    if (isPaidStage(previousStage) || isPaidStage(stage)) {
+      await recalculateCustomerStats(tx, existing.customerId);
+      if (existing.customerId !== payload.customerId) await recalculateCustomerStats(tx, payload.customerId);
+      await recalculateAffiliateMetrics(tx, existing.affiliateId);
+      if (existing.affiliateId !== payload.affiliateId) await recalculateAffiliateMetrics(tx, payload.affiliateId);
+    }
     await writeAuditLog({ actor, entityType: "ORDER", entityId: updated.id, action: "UPDATE", before: existing, after: updated, request }, tx);
 
-    return updated;
+    return { order: updated, changedBatchIds };
+  });
+}
+
+export async function changeOrderStatus(orderId: string, stage: OrderStage, actor: SessionUser, request?: Request) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, payments: true }
+    });
+    if (!existing || existing.archivedAt) throw new Error("Order not found.");
+
+    const previousStage = orderStageFromPersistence(existing);
+    if (previousStage === stage) return { order: existing, changedBatchIds: [] as string[] };
+
+    const changedBatchIds = await transitionOrderInventory(tx, existing.items, previousStage, existing.items, stage, actor, existing.orderNumber);
+    const persistedStage = persistenceForOrderStage(stage);
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: {
+        paymentStatus: persistedStage.paymentStatus,
+        fulfillmentStatus: persistedStage.fulfillmentStatus,
+        status: persistedStage.status,
+        payments: {
+          updateMany: {
+            where: { orderId },
+            data: {
+              status: persistedStage.paymentStatus,
+              paidAt: isPaidStage(stage) ? existing.payments[0]?.paidAt ?? new Date() : null
+            }
+          }
+        }
+      },
+      include: { items: true }
+    });
+
+    if (isPaidStage(previousStage) !== isPaidStage(stage)) {
+      await recalculateCustomerStats(tx, existing.customerId);
+      await recalculateAffiliateMetrics(tx, existing.affiliateId);
+    }
+    await writeAuditLog({ actor, entityType: "ORDER", entityId: orderId, action: "STATUS_CHANGED", before: { status: previousStage }, after: { status: stage }, request }, tx);
+    return { order: updated, changedBatchIds };
   });
 }
 
@@ -475,7 +438,8 @@ export async function cancelOrder(orderId: string, actor: SessionUser, request?:
     });
     if (!existing || existing.archivedAt) throw new Error("Order not found.");
 
-    await releaseOrderInventory(tx, existing.items, stageFromExisting(existing), actor, existing.orderNumber);
+    const previousStage = orderStageFromPersistence(existing);
+    await transitionOrderInventory(tx, existing.items, previousStage, [], "unfulfilled", actor, existing.orderNumber);
 
     const canceled = await tx.order.update({
       where: { id: orderId },

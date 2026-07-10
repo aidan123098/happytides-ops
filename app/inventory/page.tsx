@@ -28,7 +28,7 @@ export default async function InventoryPage() {
   const [inventoryBatches, inventoryMovements, orders, products] = await Promise.all([getInventoryBatches(), getInventoryMovements(), getOrders(), getProducts()]);
   const totalOnHand = inventoryBatches.reduce((sum, batch) => sum + batch.quantityOnHand, 0);
   const reserved = inventoryBatches.reduce((sum, batch) => sum + batch.quantityReserved, 0);
-  const lowStock = inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold);
+  const lowStock = inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold);
   const inventoryValue = inventoryBatches.reduce((sum, batch) => sum + batch.quantityOnHand * batch.costPerVialCents, 0);
 
   return (
@@ -36,13 +36,13 @@ export default async function InventoryPage() {
       <PageHeader
         eyebrow="Inventory control"
         title="Inventory"
-        description="Track stock on hand, reserved units, receipts, adjustments, and movement history."
+        description="Track total stock, paid reservations, receipts, adjustments, and movement history."
         icon={Boxes}
         kicker={`${formatNumber(products.filter((product) => product.active).length)} tracked SKUs`}
         stats={[
-          { label: "On hand", value: formatNumber(totalOnHand), detail: `${formatNumber(reserved)} units currently reserved`, icon: PackageCheck, tone: "green" },
+          { label: "Total", value: formatNumber(totalOnHand), detail: `${formatNumber(reserved)} units reserved (paid)`, icon: PackageCheck, tone: "green" },
           { label: "Low stock", value: formatNumber(lowStock.length), detail: "Stock counts at or below threshold", icon: AlertTriangle, tone: lowStock.length > 0 ? "amber" : "green" },
-          { label: "Stock value", value: formatCurrency(inventoryValue, 0), detail: "Estimated on-hand cost basis", icon: CircleDollarSign, tone: "blue" }
+          { label: "Stock value", value: formatCurrency(inventoryValue, 0), detail: "Estimated current inventory cost", icon: CircleDollarSign, tone: "blue" }
         ]}
         actions={
           <Link
@@ -56,9 +56,9 @@ export default async function InventoryPage() {
       />
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <MetricCard featured title="On hand" value={formatNumber(totalOnHand)} detail={`${formatNumber(reserved)} reserved units`} icon={PackageCheck} tone="green" />
+        <MetricCard featured title="Total" value={formatNumber(totalOnHand)} detail={`${formatNumber(reserved)} reserved (paid)`} icon={PackageCheck} tone="green" />
         <MetricCard title="Low stock" value={formatNumber(lowStock.length)} detail="Stock counts at threshold" icon={AlertTriangle} tone={lowStock.length > 0 ? "amber" : "green"} />
-        <MetricCard title="Inventory value" value={formatCurrency(inventoryValue, 0)} detail="Estimated on-hand cost" icon={CircleDollarSign} tone="blue" />
+        <MetricCard title="Inventory value" value={formatCurrency(inventoryValue, 0)} detail="Estimated current inventory cost" icon={CircleDollarSign} tone="blue" />
         <MetricCard title="Active products" value={formatNumber(products.filter((product) => product.active).length)} detail="Catalog items tracked" icon={Boxes} tone="slate" />
       </section>
 

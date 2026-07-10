@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 type BadgeProps = {
   children: React.ReactNode;
-  tone?: "blue" | "green" | "amber" | "red" | "slate";
+  tone?: "blue" | "green" | "amber" | "red" | "rose" | "cyan" | "violet" | "slate";
 };
 
 const tones = {
@@ -10,6 +10,9 @@ const tones = {
   green: "bg-emerald-50 text-emerald-700 ring-emerald-200/80",
   amber: "bg-amber-50 text-amber-800 ring-amber-200/80",
   red: "bg-red-50 text-red-700 ring-red-200/80",
+  rose: "bg-rose-50 text-rose-700 ring-rose-200/80",
+  cyan: "bg-cyan-50 text-cyan-700 ring-cyan-200/80",
+  violet: "bg-violet-50 text-violet-700 ring-violet-200/80",
   slate: "bg-slate-100 text-slate-700 ring-slate-200/80"
 };
 

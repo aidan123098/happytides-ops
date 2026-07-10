@@ -1,6 +1,6 @@
 import { affiliates as seedAffiliates, customers as seedCustomers, inventoryBatches as seedInventoryBatches, inventoryMovements as seedInventoryMovements, orders as seedOrders, products as seedProducts } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth";
-import type { Affiliate, Customer, InventoryBatch, Order, Product } from "@/types/domain";
+import type { Affiliate, Customer, InventoryBatch, Order, OrderStage, Product } from "@/types/domain";
 import type { OperationalStore } from "@/lib/services/operational-data";
 
 type OrderPayload = {
@@ -10,7 +10,8 @@ type OrderPayload = {
   locationId?: string;
   paymentMethod: Order["paymentMethod"];
   squarePaymentId?: string;
-  fulfillmentStatus?: "unfulfilled" | "packed" | "shipped" | "delivered";
+  status?: OrderStage;
+  fulfillmentStatus?: Exclude<OrderStage, "paid">;
   createdAt?: string;
   items: Array<{
     productId: string;
@@ -160,10 +161,10 @@ function restoreOrderInventory(order: Order, actor: SessionUser) {
   for (const item of order.items) {
     const batch = item.inventoryBatchId ? state.inventoryBatches.find((candidate) => candidate.id === item.inventoryBatchId) : undefined;
     if (!batch) continue;
-    if (order.fulfillmentStatus === "delivered" || order.fulfillmentStatus === "fulfilled") {
+    if (order.status === "packed" || order.status === "shipped" || order.status === "delivered") {
       batch.quantityOnHand += item.quantity;
       batch.quantitySold = Math.max(batch.quantitySold - item.quantity, 0);
-    } else {
+    } else if (order.status === "paid") {
       batch.quantityReserved = Math.max(batch.quantityReserved - item.quantity, 0);
     }
     addMovement(batch, item.quantity, `Restored from ${order.orderNumber}`, actor);
@@ -207,10 +208,10 @@ function allocateOrderInventory(order: Order, actor: SessionUser) {
   for (const item of order.items) {
     const batch = item.inventoryBatchId ? state.inventoryBatches.find((candidate) => candidate.id === item.inventoryBatchId) : undefined;
     if (!batch) continue;
-    if (order.fulfillmentStatus === "delivered" || order.fulfillmentStatus === "fulfilled") {
+    if (order.status === "packed" || order.status === "shipped" || order.status === "delivered") {
       batch.quantityOnHand -= item.quantity;
       batch.quantitySold += item.quantity;
-    } else {
+    } else if (order.status === "paid") {
       batch.quantityReserved += item.quantity;
     }
     addMovement(batch, -item.quantity, `Allocated to ${order.orderNumber}`, actor);
@@ -223,6 +224,7 @@ function buildOrder(payload: OrderPayload, actor: SessionUser, existing?: Order)
   const subtotalCents = payload.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const discountCents = payload.items.reduce((sum, item) => sum + item.discountCents, 0);
 
+  const status = payload.status ?? payload.fulfillmentStatus ?? existing?.status ?? "unfulfilled";
   return {
     id: existing?.id ?? id("ord"),
     orderNumber: existing?.orderNumber ?? `HT-${Date.now().toString().slice(-6)}`,
@@ -252,8 +254,9 @@ function buildOrder(payload: OrderPayload, actor: SessionUser, existing?: Order)
     totalCents: subtotalCents - discountCents,
     paymentMethod: payload.paymentMethod,
     squarePaymentId: payload.squarePaymentId,
-    paymentStatus: "paid",
-    fulfillmentStatus: payload.fulfillmentStatus ?? existing?.fulfillmentStatus ?? "unfulfilled",
+    paymentStatus: status === "unfulfilled" ? "pending" : "paid",
+    fulfillmentStatus: status === "delivered" ? "delivered" : status === "shipped" ? "shipped" : status === "packed" ? "packed" : "unfulfilled",
+    status,
     createdAt: payload.createdAt ? new Date(payload.createdAt).toISOString() : existing?.createdAt ?? todayIso(),
     notes: payload.notes
   };

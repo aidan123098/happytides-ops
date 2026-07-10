@@ -45,7 +45,7 @@ function dollarsToCents(value: string) {
 
 function batchTone(batch: InventoryBatch) {
   if (batch.status === "available") {
-    return batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold ? "amber" : "green";
+    return batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold ? "amber" : "green";
   }
 
   return batch.status === "quarantined" || batch.status === "damaged" ? "amber" : "slate";
@@ -186,7 +186,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
       setAdjustDelta("0");
       setAdjustStatus(payload.batch.status);
       setAdjustReason("");
-      setMessage(`${payload.batch.productName} adjusted. New on-hand count: ${payload.batch.quantityOnHand}. Status: ${payload.batch.status}.`);
+      setMessage(`${payload.batch.productName} adjusted. New total count: ${payload.batch.quantityOnHand}. Status: ${payload.batch.status}.`);
     } catch {
       setMessage("Adjustment could not be saved. Check the local dev server and try again.");
     } finally {
@@ -396,7 +396,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
 
       <div className="border-t border-slate-200 pt-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Inventory stock</h2>
-        <p className="mt-1 text-sm text-slate-500">Current on-hand, reserved, sold, supplier, and reorder counts.</p>
+        <p className="mt-1 text-sm text-slate-500">Current total, available, reserved (paid), sold, supplier, and reorder counts.</p>
       </div>
 
       <Card>
@@ -405,7 +405,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             <CardTitle>Inventory stock</CardTitle>
             <p className="mt-1 text-sm text-slate-500">Search and filter stock by SKU, product, supplier, and status.</p>
           </div>
-          <Badge tone="amber">{batches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold).length} warnings</Badge>
+          <Badge tone="amber">{batches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold).length} warnings</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 p-2 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1fr)_170px_180px]">
@@ -437,7 +437,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             {filteredBatches.map((batch) => {
               const product = products.find((item) => item.id === batch.productId);
               const available = Math.max(batch.quantityOnHand - batch.quantityReserved, 0);
-              const lowStock = batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold;
+              const lowStock = batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold;
 
               return (
                 <div key={batch.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
@@ -450,7 +450,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                     <div className="rounded-md bg-slate-50 p-2">
-                      <div className="text-xs text-slate-500">On hand</div>
+                      <div className="text-xs text-slate-500">Total</div>
                       <div className="font-semibold text-slate-950">{formatNumberOrNA(batch.quantityOnHand)}</div>
                     </div>
                     <div className="rounded-md bg-slate-50 p-2">
@@ -458,7 +458,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
                       <div className="font-semibold text-slate-950">{formatNumberOrNA(available)}</div>
                     </div>
                     <div className="rounded-md bg-slate-50 p-2">
-                      <div className="text-xs text-slate-500">Reserved</div>
+                      <div className="text-xs text-slate-500">Reserved (Paid)</div>
                       <div className="font-semibold text-slate-950">{formatNumberOrNA(batch.quantityReserved)}</div>
                     </div>
                     <div className="rounded-md bg-slate-50 p-2">
@@ -489,9 +489,9 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             })}
           </div>
 
-          <DataTable className="hidden lg:block" columns={["Product", "Stock ID", "On hand", "Reserved", "Sold", "Reorder", "Supplier", "Cost", "Status"]}>
+          <DataTable className="hidden lg:block" columns={["Product", "Stock ID", "Total", "Reserved (Paid)", "Sold", "Reorder", "Supplier", "Cost", "Status"]}>
             {filteredBatches.map((batch) => {
-              const lowStock = batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold;
+              const lowStock = batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold;
               return (
                 <tr key={batch.id}>
                   <Td className="font-medium text-slate-950">{batch.productName}</Td>

@@ -20,7 +20,7 @@ export function getAnalyticsSummary() {
     averageDaysBetweenPurchases: 0,
     dormantCustomers: customers.filter((customer) => customer.status === "inactive"),
     topCustomers: [...customers].sort((a, b) => b.totalSpendCents - a.totalSpendCents).slice(0, 5),
-    lowStock: inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold),
+    lowStock: inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold),
     expiringSoon: inventoryBatches.filter((batch) => new Date(batch.expirationDate) < new Date("2026-11-01")),
     revenueSeries
   };

@@ -35,7 +35,7 @@ export type SessionUser = {
 };
 
 const tokenPrefix = "hts_";
-const sessionCacheTtlMs = 10 * 1000;
+const sessionCacheTtlMs = 5 * 60 * 1000;
 const activityTouchIntervalMs = 5 * 60 * 1000;
 const offlineDevUserId = "dev-offline-owner";
 const offlineDevToken = `${tokenPrefix}offline_dev`;
@@ -300,7 +300,7 @@ export async function revokeSessionToken(token: string | undefined) {
 export async function getCurrentUser(options: { touchActivity?: boolean } = {}): Promise<SessionUser | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  const user = await verifySessionToken(token, options);
+  const user = await verifySessionToken(token, { touchActivity: options.touchActivity ?? false });
 
   if (!user && canUseOfflineDevAuth() && token) {
     return offlineDevUser;

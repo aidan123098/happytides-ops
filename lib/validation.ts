@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const orderStatusSchema = z.enum(["unfulfilled", "paid", "packed", "shipped", "delivered"]);
+
 const optionalEmailSchema = z.preprocess((value) => value === "" ? "N/A" : value, z.union([z.string().email(), z.literal("N/A")]).optional());
 const optionalPhoneSchema = z.preprocess((value) => value === "" ? "N/A" : value, z.union([z.string().min(1), z.literal("N/A")]).optional());
 
@@ -67,6 +69,7 @@ export const orderInputSchema = z.object({
   locationId: z.string().optional(),
   paymentMethod: z.enum(["Processor", "Cash", "Zelle", "Venmo", "ACH", "Crypto", "Other"]),
   squarePaymentId: z.string().optional(),
+  status: orderStatusSchema.optional(),
   fulfillmentStatus: z.enum(["unfulfilled", "packed", "shipped", "delivered"]).optional(),
   createdAt: z.string().optional(),
   items: z
@@ -85,6 +88,10 @@ export const orderInputSchema = z.object({
 
 export const orderUpdateSchema = orderInputSchema.extend({
   orderId: z.string().min(1)
+});
+
+export const orderStatusUpdateSchema = z.object({
+  status: orderStatusSchema
 });
 
 export const inventoryAdjustmentSchema = z.object({

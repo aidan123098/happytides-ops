@@ -472,6 +472,7 @@ export const orders: Order[] = [
     squareOrderId: "N/A",
     paymentStatus: "pending",
     fulfillmentStatus: "unfulfilled",
+    status: "unfulfilled",
     createdAt: "N/A",
     notes: "N/A"
   }
@@ -526,7 +527,7 @@ export function getDashboardMetrics() {
   const orderCountToday = todayOrders.length;
   const aov = Math.round(revenueToday / Math.max(orderCountToday, 1));
   const repeatRate = 0;
-  const lowStock = inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold);
+  const lowStock = inventoryBatches.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold);
   const topToday = [...products].sort((a, b) => b.unitsSoldToday - a.unitsSoldToday)[0];
   const topWeek = [...products].sort((a, b) => b.unitsSoldWeek - a.unitsSoldWeek)[0];
 

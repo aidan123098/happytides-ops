@@ -10,6 +10,7 @@ import {
   type Prisma
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { orderStageFromPersistence } from "@/lib/order-stage";
 import type { Affiliate, Customer, InventoryBatch, Order, Product } from "@/types/domain";
 
 export type OperationalStore = {
@@ -289,6 +290,7 @@ function orderToDomain(order: OrderWithRelations): Order {
     squareOrderId: order.squareOrderId ?? undefined,
     paymentStatus: paymentStatusMap[order.paymentStatus] ?? "pending",
     fulfillmentStatus: orderStageMap[order.status] ?? fulfillmentStatusMap[order.fulfillmentStatus] ?? "unfulfilled",
+    status: orderStageFromPersistence(order),
     createdAt: order.createdAt.toISOString(),
     notes: order.notes ?? undefined
   };
@@ -334,6 +336,15 @@ export async function getInventoryBatchById(id: string) {
   });
 
   return batch && !batch.archivedAt ? inventoryBatchToDomain(batch) : undefined;
+}
+
+export async function getInventoryBatchesByIds(ids: string[]) {
+  if (ids.length === 0) return [];
+  const batches = await prisma.inventoryBatch.findMany({
+    where: { id: { in: ids }, archivedAt: null },
+    include: { product: true }
+  });
+  return batches.map(inventoryBatchToDomain);
 }
 
 export async function getInventoryMovements() {
@@ -407,7 +418,7 @@ export async function getOrders() {
         items: { include: { product: true, inventoryBatch: true } },
         payments: true
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }]
     });
 
     return orders.map(orderToDomain);
@@ -466,14 +477,14 @@ export async function getShellPulse() {
       }),
       prisma.inventoryBatch.findMany({
         where: { archivedAt: null },
-        select: { quantityOnHand: true, reorderThreshold: true }
+        select: { quantityOnHand: true, quantityReserved: true, reorderThreshold: true }
       })
     ]);
 
     return {
       revenueTodayCents: revenueToday._sum.totalCents ?? 0,
       ordersToday,
-      lowStockCount: inventoryLevels.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand <= batch.reorderThreshold).length,
+      lowStockCount: inventoryLevels.filter((batch) => batch.reorderThreshold !== null && batch.quantityOnHand - batch.quantityReserved <= batch.reorderThreshold).length,
       unitsToday: unitsToday._sum.quantity ?? 0
     };
   });

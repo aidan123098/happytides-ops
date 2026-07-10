@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
 import { isDatabaseUnavailable } from "@/lib/offline-store";
-import { getOrderById, getOrders, invalidateOperationalDataCache } from "@/lib/services/operational-data";
+import { getInventoryBatchesByIds, getOrderById, getOrders, invalidateOperationalDataCache } from "@/lib/services/operational-data";
 import { cancelOrder, createOrder, updateOrder } from "@/lib/services/operations";
 import { orderInputSchema, orderUpdateSchema } from "@/lib/validation";
 
@@ -56,9 +56,10 @@ export async function PATCH(request: Request) {
   const payload = parsed.data;
 
   try {
-    const order = await updateOrder(payload.orderId, payload, actor, request);
+    const result = await updateOrder(payload.orderId, payload, actor, request);
     invalidateOperationalDataCache();
-    return NextResponse.json({ order: await domainOrder(order.id) });
+    const [order, batches] = await Promise.all([domainOrder(result.order.id), getInventoryBatchesByIds(result.changedBatchIds)]);
+    return NextResponse.json({ order, batches });
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
       return NextResponse.json({ error: "The shared database is unavailable, so the order was not updated. Try again in a moment." }, { status: 503 });

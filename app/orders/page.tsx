@@ -16,11 +16,12 @@ export default async function OrdersPage() {
     const date = new Date(order.createdAt);
     return !Number.isNaN(date.getTime()) && date.toDateString() === now.toDateString();
   });
-  const pendingPayments = visibleOrders.filter((order) => order.paymentStatus === "pending").length;
-  const unfulfilled = visibleOrders.filter((order) => order.fulfillmentStatus === "unfulfilled").length;
-  const packed = visibleOrders.filter((order) => order.fulfillmentStatus === "packed").length;
-  const shipped = visibleOrders.filter((order) => order.fulfillmentStatus === "shipped").length;
-  const delivered = visibleOrders.filter((order) => order.fulfillmentStatus === "delivered" || order.fulfillmentStatus === "fulfilled").length;
+  const pendingPayments = visibleOrders.filter((order) => order.status === "unfulfilled").length;
+  const unfulfilled = pendingPayments;
+  const paid = visibleOrders.filter((order) => order.status === "paid").length;
+  const packed = visibleOrders.filter((order) => order.status === "packed").length;
+  const shipped = visibleOrders.filter((order) => order.status === "shipped").length;
+  const delivered = visibleOrders.filter((order) => order.status === "delivered").length;
 
   return (
     <div className="space-y-6">
@@ -32,9 +33,9 @@ export default async function OrdersPage() {
         kicker={`${formatNumber(visibleOrders.length)} active orders`}
         stats={[
           { label: "Orders today", value: formatNumber(todayOrders.length), detail: "Created today", icon: ClipboardList, tone: todayOrders.length > 0 ? "blue" : "slate" },
-          { label: "Unfulfilled", value: formatNumber(unfulfilled), detail: "Needs first action", icon: ReceiptText, tone: unfulfilled > 0 ? "amber" : "green" },
-          { label: "Packed", value: formatNumber(packed), detail: "Ready to ship", icon: PackageCheck, tone: packed > 0 ? "blue" : "slate" },
-          { label: "Shipped", value: formatNumber(shipped), detail: "In transit", icon: Truck, tone: shipped > 0 ? "blue" : "slate" }
+          { label: "Unfulfilled", value: formatNumber(unfulfilled), detail: "Needs first action", icon: ReceiptText, tone: unfulfilled > 0 ? "rose" : "green" },
+          { label: "Paid", value: formatNumber(paid), detail: "Reserved inventory", icon: CheckCircle2, tone: paid > 0 ? "blue" : "slate" },
+          { label: "Packed", value: formatNumber(packed), detail: "Ready to ship", icon: PackageCheck, tone: packed > 0 ? "amber" : "slate" }
         ]}
         actions={
           <Link
@@ -49,11 +50,11 @@ export default async function OrdersPage() {
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-6">
         <MetricCard featured title="Active orders" value={formatNumber(visibleOrders.length)} detail={`${formatNumber(todayOrders.length)} created today`} icon={ClipboardList} tone="blue" />
-        <MetricCard title="Unfulfilled" value={formatNumber(unfulfilled)} detail="Needs first action" icon={ReceiptText} tone={unfulfilled > 0 ? "amber" : "green"} />
-        <MetricCard title="Packed" value={formatNumber(packed)} detail="Ready to ship" icon={PackageCheck} tone={packed > 0 ? "blue" : "slate"} />
-        <MetricCard title="Shipped" value={formatNumber(shipped)} detail="In transit" icon={Truck} tone={shipped > 0 ? "blue" : "slate"} />
+        <MetricCard title="Unfulfilled" value={formatNumber(unfulfilled)} detail="Needs first action" icon={ReceiptText} tone={unfulfilled > 0 ? "rose" : "green"} />
+        <MetricCard title="Paid" value={formatNumber(paid)} detail="Inventory reserved" icon={CheckCircle2} tone={paid > 0 ? "blue" : "slate"} />
+        <MetricCard title="Packed" value={formatNumber(packed)} detail="Ready to ship" icon={PackageCheck} tone={packed > 0 ? "amber" : "slate"} />
+        <MetricCard title="Shipped" value={formatNumber(shipped)} detail="In transit" icon={Truck} tone={shipped > 0 ? "cyan" : "slate"} />
         <MetricCard title="Delivered" value={formatNumber(delivered)} detail="Completed orders" icon={CheckCircle2} tone={delivered > 0 ? "green" : "slate"} />
-        <MetricCard title="Payment queue" value={formatNumber(pendingPayments)} detail="Needs collection" icon={ReceiptText} tone={pendingPayments > 0 ? "amber" : "green"} />
       </section>
 
       <OrdersWorkbench initialOrders={orders} initialProducts={products} initialInventoryBatches={inventoryBatches} />

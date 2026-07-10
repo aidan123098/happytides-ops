@@ -27,7 +27,7 @@ type EditableLine = {
 };
 
 const paymentMethods = ["Processor", "Zelle", "Venmo", "ACH", "Crypto", "Cash", "Other"] as const;
-const fulfillmentStatuses = ["unfulfilled", "packed", "shipped", "delivered"] as const;
+const orderStatuses: Order["status"][] = ["unfulfilled", "paid", "packed", "shipped", "delivered"];
 
 function centsToDollars(cents: number) {
   return (cents / 100).toFixed(2);
@@ -48,12 +48,13 @@ function displayDate(value: string) {
   return Number.isNaN(date.getTime()) ? "N/A" : date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function fulfillmentTone(status: Order["fulfillmentStatus"]) {
-  if (status === "delivered" || status === "fulfilled") return "green";
-  if (status === "shipped") return "blue";
-  if (status === "packed") return "amber";
-  return "slate";
-}
+const statusSelectClasses: Record<Order["status"], string> = {
+  unfulfilled: "border-rose-200 bg-rose-50 text-rose-800",
+  paid: "border-blue-200 bg-blue-50 text-blue-800",
+  packed: "border-amber-200 bg-amber-50 text-amber-800",
+  shipped: "border-cyan-200 bg-cyan-50 text-cyan-800",
+  delivered: "border-emerald-200 bg-emerald-50 text-emerald-800"
+};
 
 function makeLine(): EditableLine {
   return {
@@ -66,7 +67,9 @@ function makeLine(): EditableLine {
 }
 
 function visibleOrders(orders: Order[]) {
-  return orders.filter((order) => order.orderNumber !== "N/A" && order.paymentStatus !== "canceled" && order.fulfillmentStatus !== "canceled");
+  return orders
+    .filter((order) => order.orderNumber !== "N/A" && order.paymentStatus !== "canceled" && order.fulfillmentStatus !== "canceled")
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() || right.id.localeCompare(left.id));
 }
 
 export function OrdersWorkbench({ initialOrders, initialProducts, initialInventoryBatches }: OrdersWorkbenchProps) {
@@ -79,11 +82,12 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editLines, setEditLines] = useState<EditableLine[]>([]);
   const [editPaymentMethod, setEditPaymentMethod] = useState<(typeof paymentMethods)[number]>("Zelle");
-  const [editFulfillmentStatus, setEditFulfillmentStatus] = useState<(typeof fulfillmentStatuses)[number]>("unfulfilled");
+  const [editStatus, setEditStatus] = useState<Order["status"]>("unfulfilled");
   const [editCreatedAt, setEditCreatedAt] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
-  const [removingOrderId, setRemovingOrderId] = useState<string | null>(null);
+  const [removingOrderIds, setRemovingOrderIds] = useState<string[]>([]);
+  const [updatingStatusIds, setUpdatingStatusIds] = useState<string[]>([]);
   const [message, setMessage] = useState<{ tone: "green" | "amber" | "red"; text: string } | null>(null);
 
   useLiveRefresh({
@@ -126,7 +130,8 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   const originalQuantityByBatch = useMemo(() => {
     const restored = new Map<string, number>();
 
-    for (const item of editingOrder?.items ?? []) {
+    if (!editingOrder || editingOrder.status === "unfulfilled") return restored;
+    for (const item of editingOrder.items) {
       if (!item.inventoryBatchId) continue;
       restored.set(item.inventoryBatchId, (restored.get(item.inventoryBatchId) ?? 0) + item.quantity);
     }
@@ -176,6 +181,8 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
       order.paymentMethod,
       order.paymentStatus,
       order.fulfillmentStatus,
+      order.status,
+      order.notes,
       order.createdAt,
       ...order.items.map((item) => item.productName)
     ]
@@ -184,7 +191,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     const matchesSearch = !search || haystack.includes(search.toLowerCase());
     const matchesProduct = productFilter === "all" || order.items.some((item) => item.productId === productFilter || item.productName === productsById.get(productFilter)?.name);
     const matchesPayment = paymentFilter === "all" || order.paymentMethod === paymentFilter;
-    const matchesStatus = statusFilter === "all" || order.fulfillmentStatus === statusFilter;
+    const matchesStatus = statusFilter === "all" || order.status === statusFilter;
 
     return matchesSearch && matchesProduct && matchesPayment && matchesStatus;
   });
@@ -209,7 +216,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     setEditingOrderId(order.id);
     setEditLines(hydrateLine(order));
     setEditPaymentMethod(paymentMethods.includes(order.paymentMethod as (typeof paymentMethods)[number]) ? (order.paymentMethod as (typeof paymentMethods)[number]) : "Other");
-    setEditFulfillmentStatus(fulfillmentStatuses.includes(order.fulfillmentStatus as (typeof fulfillmentStatuses)[number]) ? (order.fulfillmentStatus as (typeof fulfillmentStatuses)[number]) : "unfulfilled");
+    setEditStatus(order.status);
     setEditCreatedAt(dateInputValue(order.createdAt));
     setEditNotes(order.notes ?? "");
   }
@@ -233,7 +240,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   }
 
   async function saveEdit(orderId: string) {
-    if (savingOrderId || removingOrderId) return;
+    if (savingOrderId === orderId || removingOrderIds.includes(orderId)) return;
 
     const invalidLine = editLines.find((line) => !line.productId || !line.inventoryBatchId || line.quantity < 1 || dollarsToCents(line.unitPrice) <= 0);
 
@@ -259,7 +266,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           customerId: orders.find((order) => order.id === orderId)?.customerId ?? "cust_placeholder",
           affiliateId: orders.find((order) => order.id === orderId)?.affiliateId,
           paymentMethod: editPaymentMethod,
-          fulfillmentStatus: editFulfillmentStatus,
+          status: editStatus,
           createdAt: editCreatedAt,
           items: editLines.map((line) => ({
             productId: line.productId,
@@ -278,7 +285,11 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
         return;
       }
 
-      setOrders((current) => current.map((order) => (order.id === orderId ? payload.order : order)));
+      setOrders((current) => visibleOrders(current.map((order) => (order.id === orderId ? payload.order : order))));
+      if (Array.isArray(payload.batches) && payload.batches.length > 0) {
+        const changed = new Map<string, InventoryBatch>(payload.batches.map((batch: InventoryBatch) => [batch.id, batch]));
+        setInventoryBatches((current) => current.map((batch) => changed.get(batch.id) ?? batch));
+      }
       setEditingOrderId(null);
       setMessage({ tone: "green", text: `${payload.order.orderNumber} updated and inventory rebalanced.` });
     } catch {
@@ -288,14 +299,59 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     }
   }
 
+  async function changeStatus(order: Order, status: Order["status"]) {
+    if (status === order.status || updatingStatusIds.includes(order.id)) return;
+    setUpdatingStatusIds((current) => [...current, order.id]);
+    setMessage({ tone: "amber", text: `Updating ${order.orderNumber} to ${status}...` });
+
+    try {
+      const response = await fetch(`/api/orders/${encodeURIComponent(order.id)}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.order) {
+        setMessage({ tone: "red", text: payload.error ?? "Order status could not be updated." });
+        return;
+      }
+
+      setOrders((current) => visibleOrders(current.map((candidate) => (candidate.id === order.id ? payload.order : candidate))));
+      if (Array.isArray(payload.batches) && payload.batches.length > 0) {
+        const changed = new Map<string, InventoryBatch>(payload.batches.map((batch: InventoryBatch) => [batch.id, batch]));
+        setInventoryBatches((current) => current.map((batch) => changed.get(batch.id) ?? batch));
+      }
+      setMessage({ tone: "green", text: `${order.orderNumber} is now ${status}. Inventory updated.` });
+    } catch {
+      setMessage({ tone: "red", text: "Order status could not be updated. Try again in a moment." });
+    } finally {
+      setUpdatingStatusIds((current) => current.filter((id) => id !== order.id));
+    }
+  }
+
+  function statusControl(order: Order) {
+    const updating = updatingStatusIds.includes(order.id);
+    return (
+      <select
+        aria-label={`Status for ${order.orderNumber}`}
+        className={`h-8 rounded-full border px-3 text-xs font-semibold capitalize shadow-sm outline-none focus:ring-2 focus:ring-ring/30 ${statusSelectClasses[order.status]}`}
+        value={order.status}
+        onChange={(event) => changeStatus(order, event.target.value as Order["status"])}
+        disabled={updating || removingOrderIds.includes(order.id) || savingOrderId === order.id}
+      >
+        {orderStatuses.map((status) => <option key={status} value={status}>{updating && status === order.status ? "Updating..." : status}</option>)}
+      </select>
+    );
+  }
+
   async function removeOrder(order: Order) {
-    if (savingOrderId || removingOrderId) return;
+    if (savingOrderId === order.id || removingOrderIds.includes(order.id)) return;
 
     const confirmed = window.confirm(`Remove ${order.orderNumber}? Inventory will be restored for the products in this order.`);
 
     if (!confirmed) return;
 
-    setRemovingOrderId(order.id);
+    setRemovingOrderIds((current) => [...current, order.id]);
     setMessage({ tone: "amber", text: `Removing ${order.orderNumber}...` });
 
     try {
@@ -312,7 +368,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     } catch {
       setMessage({ tone: "red", text: "Order could not be removed. Check the local dev server and try again." });
     } finally {
-      setRemovingOrderId(null);
+      setRemovingOrderIds((current) => current.filter((id) => id !== order.id));
     }
   }
 
@@ -335,9 +391,9 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             </select>
           </label>
           <label>
-            <span className="text-xs font-semibold uppercase text-slate-500">Fulfillment</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editFulfillmentStatus} onChange={(event) => setEditFulfillmentStatus(event.target.value as (typeof fulfillmentStatuses)[number])}>
-              {fulfillmentStatuses.map((status) => (
+            <span className="text-xs font-semibold uppercase text-slate-500">Status</span>
+            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editStatus} onChange={(event) => setEditStatus(event.target.value as Order["status"])}>
+              {orderStatuses.map((status) => (
                 <option key={status} value={status}>{status}</option>
               ))}
             </select>
@@ -465,10 +521,10 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             </select>
           </label>
           <label className="block">
-            <span className="sr-only">Fulfillment</span>
+            <span className="sr-only">Status</span>
             <select className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="all">All fulfillment</option>
-              {fulfillmentStatuses.map((status) => (
+              <option value="all">All statuses</option>
+              {orderStatuses.map((status) => (
                 <option key={status} value={status}>
                   {status}
                 </option>
@@ -486,7 +542,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
 
         <div className="space-y-3 lg:hidden">
           {filteredOrders.map((order) => {
-            const removingThisOrder = removingOrderId === order.id;
+            const removingThisOrder = removingOrderIds.includes(order.id);
 
             return (
             <div key={order.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
@@ -495,10 +551,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                   <div className="font-semibold text-slate-950">{order.orderNumber}</div>
                   <div className="mt-1 truncate text-sm text-slate-500">{order.customerName}</div>
                 </div>
-                <div className="flex shrink-0 flex-col items-end gap-2">
-                  <Badge tone={order.paymentStatus === "paid" ? "green" : "amber"}>{order.paymentStatus}</Badge>
-                  <Badge tone={fulfillmentTone(order.fulfillmentStatus)}>{order.fulfillmentStatus === "fulfilled" ? "delivered" : order.fulfillmentStatus}</Badge>
-                </div>
+                <div className="shrink-0">{statusControl(order)}</div>
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
@@ -511,14 +564,20 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                   <div className="font-semibold text-slate-950">{order.paymentMethod}</div>
                 </div>
                 <div className="rounded-md bg-slate-50 p-2">
-                  <div className="text-xs text-slate-500">Fulfillment</div>
-                  <div className="font-semibold text-slate-950">{order.fulfillmentStatus === "fulfilled" ? "delivered" : order.fulfillmentStatus}</div>
+                  <div className="text-xs text-slate-500">Status</div>
+                  <div className="font-semibold capitalize text-slate-950">{order.status}</div>
                 </div>
                 <div className="rounded-md bg-slate-50 p-2">
                   <div className="text-xs text-slate-500">Date</div>
                   <div className="truncate font-semibold text-slate-950">{displayDate(order.createdAt)}</div>
                 </div>
               </div>
+
+              {order.notes ? (
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  <span className="font-semibold text-slate-950">Notes:</span> {order.notes}
+                </div>
+              ) : null}
 
               <div className="mt-3 space-y-2">
                 {order.items.slice(0, 4).map((item, itemIndex) => (
@@ -549,19 +608,22 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           })}
         </div>
 
-        <DataTable className="hidden lg:block" columns={["Order", "Customer", "Items", "Payment", "Total", "Fulfillment", "Date", "Actions"]}>
+        <DataTable className="hidden lg:block" columns={["Order", "Customer", "Items", "Payment", "Total", "Status", "Date", "Actions"]}>
           {filteredOrders.map((order) => {
-            const removingThisOrder = removingOrderId === order.id;
+            const removingThisOrder = removingOrderIds.includes(order.id);
 
             return (
             <Fragment key={order.id}>
               <tr key={order.id}>
-                <Td className="font-medium text-slate-950">{order.orderNumber}</Td>
+                <Td className="max-w-[240px] font-medium text-slate-950">
+                  <div>{order.orderNumber}</div>
+                  {order.notes ? <div className="mt-1 whitespace-normal text-xs font-normal leading-5 text-slate-500"><span className="font-semibold text-slate-700">Notes:</span> {order.notes}</div> : null}
+                </Td>
                 <Td>{order.customerName}</Td>
                 <Td>{order.items.map((item) => `${formatNumberOrNA(item.quantity)}x ${item.productName}`).join(", ")}</Td>
                 <Td><Badge tone={order.paymentStatus === "paid" ? "green" : "amber"}>{order.paymentMethod}</Badge></Td>
                 <Td className="font-medium text-slate-950">{formatCurrencyOrNA(order.totalCents)}</Td>
-                <Td><Badge tone={fulfillmentTone(order.fulfillmentStatus)}>{order.fulfillmentStatus === "fulfilled" ? "delivered" : order.fulfillmentStatus}</Badge></Td>
+                <Td>{statusControl(order)}</Td>
                 <Td>{displayDate(order.createdAt)}</Td>
                 <Td>
                   <div className="flex gap-2">
