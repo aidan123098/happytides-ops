@@ -16,8 +16,12 @@ function validationError(error: unknown) {
   return NextResponse.json({ error: detail }, { status: 400 });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   await requirePermission("inventory:read");
+  if (new URL(request.url).searchParams.get("view") === "batches") {
+    return NextResponse.json({ batches: await getInventoryBatches() });
+  }
+
   const [batches, movements] = await Promise.all([getInventoryBatches(), getInventoryMovements()]);
   return NextResponse.json({ batches, movements });
 }

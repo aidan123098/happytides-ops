@@ -319,6 +319,7 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
 export async function updateOrder(orderId: string, payload: OrderPayload, actor: SessionUser, request?: Request) {
   return prisma.$transaction(async (tx) => {
     const existing = await tx.order.findUnique({
+      relationLoadStrategy: "join",
       where: { id: orderId },
       include: { items: true, payments: true }
     });
@@ -394,6 +395,7 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
 export async function changeOrderStatus(orderId: string, stage: OrderStage, actor: SessionUser, request?: Request) {
   return prisma.$transaction(async (tx) => {
     const existing = await tx.order.findUnique({
+      relationLoadStrategy: "join",
       where: { id: orderId },
       include: { items: true, payments: true }
     });
@@ -434,6 +436,7 @@ export async function changeOrderStatus(orderId: string, stage: OrderStage, acto
 export async function cancelOrder(orderId: string, actor: SessionUser, request?: Request) {
   return prisma.$transaction(async (tx) => {
     const existing = await tx.order.findUnique({
+      relationLoadStrategy: "join",
       where: { id: orderId },
       include: { items: true }
     });

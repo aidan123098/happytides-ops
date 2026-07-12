@@ -300,6 +300,7 @@ function orderToDomain(order: OrderWithRelations): Order {
 export async function getProducts() {
   return cachedRead("products", async () => {
     const products = await prisma.product.findMany({
+      relationLoadStrategy: "join",
       where: { archivedAt: null },
       include: { category: true },
       orderBy: { name: "asc" }
@@ -311,6 +312,7 @@ export async function getProducts() {
 
 export async function getProductById(id: string) {
   const product = await prisma.product.findUnique({
+    relationLoadStrategy: "join",
     where: { id },
     include: { category: true }
   });
@@ -321,6 +323,7 @@ export async function getProductById(id: string) {
 export async function getInventoryBatches() {
   return cachedRead("inventory-batches", async () => {
     const batches = await prisma.inventoryBatch.findMany({
+      relationLoadStrategy: "join",
       where: { archivedAt: null },
       include: { product: true },
       orderBy: [{ product: { name: "asc" } }, { expirationDate: "asc" }]
@@ -332,6 +335,7 @@ export async function getInventoryBatches() {
 
 export async function getInventoryBatchById(id: string) {
   const batch = await prisma.inventoryBatch.findUnique({
+    relationLoadStrategy: "join",
     where: { id },
     include: { product: true }
   });
@@ -342,6 +346,7 @@ export async function getInventoryBatchById(id: string) {
 export async function getInventoryBatchesByIds(ids: string[]) {
   if (ids.length === 0) return [];
   const batches = await prisma.inventoryBatch.findMany({
+    relationLoadStrategy: "join",
     where: { id: { in: ids }, archivedAt: null },
     include: { product: true }
   });
@@ -351,6 +356,7 @@ export async function getInventoryBatchesByIds(ids: string[]) {
 export async function getInventoryMovements() {
   return cachedRead("inventory-movements", async () => {
     const movements = await prisma.inventoryMovement.findMany({
+      relationLoadStrategy: "join",
       include: {
         batch: { include: { product: true } },
         adjustedBy: true
@@ -366,6 +372,7 @@ export async function getInventoryMovements() {
 export async function getCustomers() {
   return cachedRead("customers", async () => {
     const customers = await prisma.customer.findMany({
+      relationLoadStrategy: "join",
       where: { archivedAt: null },
       include: {
         favoriteProduct: true,
@@ -380,6 +387,7 @@ export async function getCustomers() {
 
 export async function getCustomerById(id: string) {
   const customer = await prisma.customer.findUnique({
+    relationLoadStrategy: "join",
     where: { id },
     include: {
       favoriteProduct: true,
@@ -410,6 +418,7 @@ export async function getAffiliateById(id: string) {
 export async function getOrders() {
   return cachedRead("orders", async () => {
     const orders = await prisma.order.findMany({
+      relationLoadStrategy: "join",
       where: { archivedAt: null },
       include: {
         customer: true,
@@ -428,6 +437,7 @@ export async function getOrders() {
 
 export async function getOrderById(id: string) {
   const order = await prisma.order.findUnique({
+    relationLoadStrategy: "join",
     where: { id },
     include: {
       customer: true,

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
 import { getCurrentUser } from "@/lib/auth";
-import { getShellPulse } from "@/lib/services/operational-data";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,25 +8,13 @@ export const metadata: Metadata = {
   description: "Internal sales, inventory, customer, and analytics dashboard for HappyTides."
 };
 
-export const preferredRegion = "pdx1";
-
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const [currentUser, pulse] = await Promise.all([getCurrentUser(), getShellPulse()]);
+  const currentUser = await getCurrentUser();
 
   return (
     <html lang="en">
       <body>
-        <AppShell
-          currentUser={currentUser}
-          pulse={{
-            revenueTodayCents: pulse.revenueTodayCents,
-            ordersToday: pulse.ordersToday,
-            lowStockCount: pulse.lowStockCount,
-            unitsToday: pulse.unitsToday
-          }}
-        >
-          {children}
-        </AppShell>
+        <AppShell currentUser={currentUser}>{children}</AppShell>
       </body>
     </html>
   );

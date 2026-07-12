@@ -96,7 +96,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     onRefresh: async () => {
       const [ordersResponse, inventoryResponse] = await Promise.all([
         fetch("/api/orders", { cache: "no-store" }),
-        fetch("/api/inventory", { cache: "no-store" })
+        fetch("/api/inventory?view=batches", { cache: "no-store" })
       ]);
 
       if (ordersResponse.ok) {

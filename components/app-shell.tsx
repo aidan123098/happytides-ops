@@ -54,8 +54,16 @@ type ShellPulse = {
   unitsToday: number;
 };
 
-export function AppShell({ children, currentUser, pulse }: { children: React.ReactNode; currentUser: SessionUser | null; pulse: ShellPulse }) {
+const emptyPulse: ShellPulse = {
+  revenueTodayCents: 0,
+  ordersToday: 0,
+  lowStockCount: 0,
+  unitsToday: 0
+};
+
+export function AppShell({ children, currentUser }: { children: React.ReactNode; currentUser: SessionUser | null }) {
   const pathname = usePathname();
+  const [pulse, setPulse] = useState<ShellPulse>(emptyPulse);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -79,6 +87,23 @@ export function AppShell({ children, currentUser, pulse }: { children: React.Rea
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+
+    async function loadPulse() {
+      const response = await fetch("/api/shell-pulse", { cache: "no-store" }).catch(() => null);
+      if (!response?.ok) return;
+      const payload = await response.json().catch(() => null);
+      if (!cancelled && payload?.pulse) setPulse(payload.pulse);
+    }
+
+    void loadPulse();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, pathname]);
 
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });

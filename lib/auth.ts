@@ -172,6 +172,7 @@ export async function authenticateStaffUser(email: string, password: string, req
 
   try {
     const user = await prisma.user.findUnique({
+      relationLoadStrategy: "join",
       where: { email: normalizedEmail },
       include: { roles: { include: { role: true } } }
     });
@@ -248,6 +249,7 @@ export async function verifySessionToken(token: string | undefined, options: { t
 
   try {
     const session = await prisma.session.findUnique({
+      relationLoadStrategy: "join",
       where: { tokenHash },
       include: {
         user: {

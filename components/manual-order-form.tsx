@@ -103,7 +103,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
     onRefresh: async () => {
       const [customersResponse, inventoryResponse] = await Promise.all([
         fetch("/api/customers", { cache: "no-store" }),
-        fetch("/api/inventory", { cache: "no-store" })
+        fetch("/api/inventory?view=batches", { cache: "no-store" })
       ]);
 
       if (customersResponse.ok) {
