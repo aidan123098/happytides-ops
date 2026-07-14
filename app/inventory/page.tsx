@@ -45,8 +45,6 @@ export default async function InventoryPage() {
       summary.set(key, current);
       return summary;
     }, new Map<string, { totalCents: number; orders: typeof orders }>());
-  const assignedPaymentTotal = paymentRecipients.reduce((sum, recipient) => sum + (paymentSummary.get(recipient)?.totalCents ?? 0), 0);
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -142,7 +140,6 @@ export default async function InventoryPage() {
           <details className="group">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-700 marker:hidden">
               <span>Who got paid totals</span>
-              <span className="text-xs font-medium text-slate-500">{formatCurrency(assignedPaymentTotal)} assigned</span>
             </summary>
             <div className="border-t border-slate-200 px-4 py-3">
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -152,10 +149,15 @@ export default async function InventoryPage() {
                     <details key={recipient} className="rounded-md border border-slate-200 bg-slate-50">
                       <summary className="cursor-pointer list-none p-3 marker:hidden">
                         <div className="text-xs font-semibold uppercase text-slate-500">{paymentRecipientLabels[recipient]}</div>
-                        <div className="mt-1 text-lg font-semibold text-slate-950">{formatCurrency(row.totalCents)}</div>
-                        <div className="mt-1 text-xs text-slate-500">{formatNumber(row.orders.length)} paid-or-later orders</div>
                       </summary>
                       <div className="space-y-2 border-t border-slate-200 px-3 py-2">
+                        <div className="flex items-end justify-between gap-2 rounded-md bg-white px-2 py-1.5">
+                          <div>
+                            <div className="text-xs text-slate-500">Total paid</div>
+                            <div className="text-lg font-semibold text-slate-950">{formatCurrency(row.totalCents)}</div>
+                          </div>
+                          <div className="pb-0.5 text-right text-xs text-slate-500">{formatNumber(row.orders.length)} paid-or-later orders</div>
+                        </div>
                         {row.orders.length > 0 ? row.orders.map((order) => (
                           <div key={order.id} className="rounded-md bg-white px-2 py-1.5 text-xs">
                             <div className="flex items-center justify-between gap-2">
@@ -175,9 +177,16 @@ export default async function InventoryPage() {
               {paymentSummary.has("unassigned") ? (
                 <details className="mt-2 rounded-md border border-amber-200 bg-amber-50 text-sm text-amber-800">
                   <summary className="cursor-pointer list-none px-3 py-2 marker:hidden">
-                    {paymentRecipientLabel(null)}: {formatCurrency(paymentSummary.get("unassigned")?.totalCents ?? 0)} across {formatNumber(paymentSummary.get("unassigned")?.orders.length ?? 0)} paid-or-later orders.
+                    {paymentRecipientLabel(null)}
                   </summary>
                   <div className="space-y-2 border-t border-amber-200 px-3 py-2">
+                    <div className="flex items-end justify-between gap-2 rounded-md bg-white/80 px-2 py-1.5">
+                      <div>
+                        <div className="text-xs text-amber-700">Total unassigned</div>
+                        <div className="text-lg font-semibold text-slate-950">{formatCurrency(paymentSummary.get("unassigned")?.totalCents ?? 0)}</div>
+                      </div>
+                      <div className="pb-0.5 text-right text-xs text-amber-700">{formatNumber(paymentSummary.get("unassigned")?.orders.length ?? 0)} paid-or-later orders</div>
+                    </div>
                     {paymentSummary.get("unassigned")?.orders.map((order) => (
                       <div key={order.id} className="rounded-md bg-white/80 px-2 py-1.5 text-xs">
                         <div className="flex items-center justify-between gap-2">
