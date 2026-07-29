@@ -13,6 +13,20 @@ export type AllocationRequest = {
   quantity: number;
 };
 
+export function adjustedInventoryTotal(quantityOnHand: number, quantityReserved: number, quantityDelta: number) {
+  const quantityAfter = quantityOnHand + quantityDelta;
+
+  if (quantityAfter < 0) {
+    throw new Error("Inventory cannot go negative.");
+  }
+
+  if (quantityAfter < quantityReserved) {
+    throw new Error("Inventory total cannot be lower than reserved (paid) stock.");
+  }
+
+  return quantityAfter;
+}
+
 export function assertLotCanAllocate(batch: AllocationLot, requested: AllocationRequest, now = new Date()) {
   const allowedStatuses: InventoryStatus[] = [InventoryStatus.AVAILABLE, InventoryStatus.QA_RELEASED, InventoryStatus.RECEIVED];
 

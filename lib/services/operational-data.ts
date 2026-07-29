@@ -11,22 +11,13 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { orderStageFromPersistence } from "@/lib/order-stage";
-import type { Affiliate, Customer, InventoryBatch, Order, Product } from "@/types/domain";
+import type { Affiliate, Customer, InventoryBatch, InventoryMovement, Order, Product } from "@/types/domain";
 
 export type OperationalStore = {
   affiliates: Affiliate[];
   customers: Customer[];
   inventoryBatches: InventoryBatch[];
-  inventoryMovements: Array<{
-    id: string;
-    product: string;
-    batch: string;
-    type: string;
-    delta: number;
-    reason: string;
-    staff: string;
-    at: string;
-  }>;
+  inventoryMovements: InventoryMovement[];
   orders: Order[];
   products: Product[];
 };
@@ -206,13 +197,16 @@ function inventoryBatchToDomain(batch: InventoryBatchWithProduct): InventoryBatc
   };
 }
 
-function inventoryMovementToDomain(movement: InventoryMovementWithRelations) {
+function inventoryMovementToDomain(movement: InventoryMovementWithRelations): InventoryMovement {
   return {
     id: movement.id,
     product: movement.batch.product.name,
     batch: `${movement.batch.batchNumber}/${movement.batch.lotNumber}`,
     type: movement.type.toLowerCase(),
     delta: movement.quantityDelta,
+    quantityBefore: movement.quantityBefore,
+    quantityAfter: movement.quantityAfter,
+    referenceType: movement.referenceType,
     reason: movement.reason,
     staff: movement.adjustedBy.displayName || movement.adjustedBy.name,
     at: movement.createdAt.toISOString()
@@ -353,10 +347,18 @@ export async function getInventoryBatchesByIds(ids: string[]) {
   return batches.map(inventoryBatchToDomain);
 }
 
-export async function getInventoryMovements() {
-  return cachedRead("inventory-movements", async () => {
+export type InventoryMovementScope = "all" | "order" | "stock";
+
+export async function getInventoryMovements(scope: InventoryMovementScope = "all") {
+  return cachedRead(`inventory-movements:${scope}`, async () => {
+    const where: Prisma.InventoryMovementWhereInput | undefined = scope === "order"
+      ? { referenceType: "ORDER" }
+      : scope === "stock"
+        ? { OR: [{ referenceType: null }, { referenceType: { not: "ORDER" } }] }
+        : undefined;
     const movements = await prisma.inventoryMovement.findMany({
       relationLoadStrategy: "join",
+      where,
       include: {
         batch: { include: { product: true } },
         adjustedBy: true

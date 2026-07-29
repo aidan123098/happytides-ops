@@ -18,8 +18,18 @@ function validationError(error: unknown) {
 
 export async function GET(request: Request) {
   await requirePermission("inventory:read");
-  if (new URL(request.url).searchParams.get("view") === "batches") {
+  const view = new URL(request.url).searchParams.get("view");
+
+  if (view === "batches") {
     return NextResponse.json({ batches: await getInventoryBatches() });
+  }
+
+  if (view === "movements") {
+    const [orderMovements, stockMovements] = await Promise.all([
+      getInventoryMovements("order"),
+      getInventoryMovements("stock")
+    ]);
+    return NextResponse.json({ orderMovements, stockMovements });
   }
 
   const [batches, movements] = await Promise.all([getInventoryBatches(), getInventoryMovements()]);

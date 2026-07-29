@@ -91,7 +91,7 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
   useLiveRefresh({
     onRefresh: async () => {
       const [inventoryResponse, ordersResponse] = await Promise.all([
-        fetch("/api/inventory", { cache: "no-store" }),
+        fetch("/api/inventory?view=batches", { cache: "no-store" }),
         fetch("/api/orders", { cache: "no-store" })
       ]);
 
@@ -108,6 +108,10 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
   });
 
   const selectedBatch = batches.find((batch) => batch.id === adjustBatchId);
+  const parsedAdjustment = Number.parseInt(adjustDelta, 10);
+  const adjustmentBelowReserved = selectedBatch !== undefined
+    && Number.isFinite(parsedAdjustment)
+    && selectedBatch.quantityOnHand + parsedAdjustment < selectedBatch.quantityReserved;
   const suppliers = [...new Set(batches.map((batch) => batch.supplier))];
   const receiveReady = receiveForm.productId && receiveForm.batchNumber.trim() && receiveForm.lotNumber.trim() && receiveForm.supplier.trim() && receiveForm.storageRequirements.trim() && receiveForm.costPerVial.trim() && Number.parseInt(receiveForm.quantityOnHand, 10) >= 0 && dollarsToCents(receiveForm.costPerVial) >= 0 && receiveForm.reason.trim().length >= 4;
   const filteredBatches = batches.filter((batch) => {
@@ -163,6 +167,11 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
 
     if (!adjustBatchId || !Number.isFinite(quantityDelta) || !adjustReason.trim()) {
       setMessage("Choose a product, enter a stock change, and add a reason.");
+      return;
+    }
+
+    if (adjustmentBelowReserved) {
+      setMessage("Total stock cannot be lower than reserved (paid) stock.");
       return;
     }
 
@@ -388,7 +397,8 @@ export function InventoryWorkbench({ initialBatches, products, orders }: Invento
             <span className="text-xs font-semibold uppercase text-slate-500">Reason</span>
             <Input className="mt-1" value={adjustReason} onChange={(event) => setAdjustReason(event.target.value)} placeholder="Cycle count, damage, received stock" />
           </label>
-          <Button onClick={applyAdjustment} disabled={adjusting}>{adjusting ? "Saving..." : "Save change"}</Button>
+          <Button onClick={applyAdjustment} disabled={adjusting || adjustmentBelowReserved}>{adjusting ? "Saving..." : "Save change"}</Button>
+          {adjustmentBelowReserved ? <div className="text-sm text-red-600 md:col-span-5">Total stock cannot be lower than reserved (paid) stock.</div> : null}
           {message ? <div className="text-sm text-slate-600 md:col-span-5">{message}</div> : null}
           </div>
         </CardContent> : null}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { InventoryStatus } from "@prisma/client";
-import { assertLotCanAllocate, type AllocationLot } from "@/lib/services/inventory-policy";
+import { adjustedInventoryTotal, assertLotCanAllocate, type AllocationLot } from "@/lib/services/inventory-policy";
 
 const baseLot: AllocationLot = {
   productId: "prod_a",
@@ -40,4 +40,9 @@ test("blocks allocation from expired lots", () => {
 
 test("blocks overselling when reserved quantity reduces availability", () => {
   assert.throws(() => assertLotCanAllocate(baseLot, { productId: "prod_a", quantity: 9 }), /Insufficient/);
+});
+
+test("manual adjustments preserve paid reservations", () => {
+  assert.equal(adjustedInventoryTotal(32, 3, -29), 3);
+  assert.throws(() => adjustedInventoryTotal(32, 3, -30), /reserved \(paid\)/);
 });

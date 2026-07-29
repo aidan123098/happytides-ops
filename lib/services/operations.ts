@@ -5,7 +5,7 @@ import { writeAuditLog } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { transitionInventoryCounts } from "@/lib/inventory-counts";
 import { isPaidStage, isReservedStage, isSoldStage, orderStageFromPersistence, persistenceForOrderStage, type OrderStage } from "@/lib/order-stage";
-import { assertLotCanAllocate } from "@/lib/services/inventory-policy";
+import { adjustedInventoryTotal, assertLotCanAllocate } from "@/lib/services/inventory-policy";
 import type { Customer } from "@/types/domain";
 
 type Tx = Prisma.TransactionClient;
@@ -469,8 +469,7 @@ export async function adjustInventory(payload: { batchId: string; quantityDelta:
     if (!batch || batch.archivedAt) throw new Error("Inventory batch not found.");
 
     const quantityBefore = batch.quantityOnHand;
-    const quantityAfter = quantityBefore + payload.quantityDelta;
-    if (quantityAfter < 0) throw new Error("Inventory cannot go negative.");
+    const quantityAfter = adjustedInventoryTotal(quantityBefore, batch.quantityReserved, payload.quantityDelta);
 
     const updated = await tx.inventoryBatch.update({
       where: { id: payload.batchId },

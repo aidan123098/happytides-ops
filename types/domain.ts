@@ -49,6 +49,20 @@ export type InventoryBatch = {
   status: "available" | "reserved" | "sold" | "expired" | "quarantined" | "damaged";
 };
 
+export type InventoryMovement = {
+  id: string;
+  product: string;
+  batch: string;
+  type: string;
+  delta: number;
+  quantityBefore?: number | null;
+  quantityAfter?: number | null;
+  referenceType?: string | null;
+  reason: string;
+  staff: string;
+  at: string;
+};
+
 export type Customer = {
   id: string;
   firstName: string;
