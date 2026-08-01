@@ -18,7 +18,6 @@ import {
   purchaseShipStationLabel,
   ShipStationError,
   testShipStationConnection,
-  validateShipStationAddress,
   voidShipStationLabel,
   type ShipStationLabel,
   type ShipStationParcel
@@ -297,10 +296,6 @@ export async function prepareShippingRates(input: {
   const originalAddress = addressFromOrder(order);
   if (!originalAddress) throw new Error("Add a complete US shipping address before reviewing rates.");
   const parcel = parcelFromConfig(config, input.parcel);
-  const validation = await validateShipStationAddress(originalAddress);
-  if (validation.status.toLowerCase() === "error") {
-    throw new Error(validation.messages[0] ?? "ShipStation could not validate this address.");
-  }
 
   const shipment = await prisma.shippingShipment.create({
     data: {
@@ -314,7 +309,7 @@ export async function prepareShippingRates(input: {
       lengthIn: parcel.lengthIn,
       widthIn: parcel.widthIn,
       heightIn: parcel.heightIn,
-      ...addressData(validation.address)
+      ...addressData(originalAddress)
     }
   });
 
@@ -323,7 +318,7 @@ export async function prepareShippingRates(input: {
       externalShipmentId: shipment.externalShipmentId,
       warehouseId: config.warehouseId!,
       carrierIds: config.enabledCarrierIds,
-      address: validation.address,
+      address: originalAddress,
       parcel
     });
     const rates = sortShippingRates(result.rates);
@@ -342,7 +337,7 @@ export async function prepareShippingRates(input: {
       originalAddress,
       correctedAddress,
       addressCorrected: !sameAddress(originalAddress, correctedAddress),
-      addressMessages: validation.messages,
+      addressMessages: [],
       parcel,
       rates
     };

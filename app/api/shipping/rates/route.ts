@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
 import { prepareShippingRates } from "@/lib/services/shipping";
+import { ShipStationError } from "@/lib/services/shipstation";
 import { shippingRateRequestSchema } from "@/lib/validation";
 
 export async function POST(request: Request) {
@@ -10,6 +11,11 @@ export async function POST(request: Request) {
   try {
     return NextResponse.json(await prepareShippingRates(parsed.data, actor));
   } catch (error) {
+    if (error instanceof ShipStationError) {
+      const path = error.providerPath ?? "/v2/rates";
+      const status = error.status ? ` returned HTTP ${error.status}` : " failed";
+      return NextResponse.json({ error: `ShipStation ${path}${status}: ${error.message}` }, { status: 502 });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Rates could not be loaded." }, { status: 400 });
   }
 }

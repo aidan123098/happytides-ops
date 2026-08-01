@@ -43,13 +43,15 @@ export type ShipStationLabel = {
 
 export class ShipStationError extends Error {
   status?: number;
+  providerPath?: string;
   retryable: boolean;
   ambiguous: boolean;
 
-  constructor(message: string, options: { status?: number; retryable?: boolean; ambiguous?: boolean } = {}) {
+  constructor(message: string, options: { status?: number; providerPath?: string; retryable?: boolean; ambiguous?: boolean } = {}) {
     super(message);
     this.name = "ShipStationError";
     this.status = options.status;
+    this.providerPath = options.providerPath;
     this.retryable = options.retryable ?? false;
     this.ambiguous = options.ambiguous ?? false;
   }
@@ -88,7 +90,9 @@ function errorMessage(payload: unknown, fallback: string) {
 async function shipStationRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const apiKey = process.env.SHIPSTATION_API_KEY?.trim();
   if (!apiKey) {
-    throw new ShipStationError("ShipStation is not connected. Add SHIPSTATION_API_KEY before enabling shipping.");
+    throw new ShipStationError("ShipStation is not connected. Add SHIPSTATION_API_KEY before enabling shipping.", {
+      providerPath: `/v2${path}`
+    });
   }
 
   let response: Response;
@@ -106,6 +110,7 @@ async function shipStationRequest<T>(path: string, init: RequestInit = {}): Prom
     });
   } catch (error) {
     throw new ShipStationError(error instanceof Error ? error.message : "ShipStation did not respond.", {
+      providerPath: `/v2${path}`,
       retryable: true,
       ambiguous: init.method === "POST"
     });
@@ -115,6 +120,7 @@ async function shipStationRequest<T>(path: string, init: RequestInit = {}): Prom
   if (!response.ok) {
     throw new ShipStationError(errorMessage(payload, `ShipStation request failed (${response.status}).`), {
       status: response.status,
+      providerPath: `/v2${path}`,
       retryable: response.status === 408 || response.status === 429 || response.status >= 500,
       ambiguous: false
     });
@@ -211,32 +217,6 @@ export async function ensureShipStationTrackingWebhook(url: string, secret: stri
   }
   const created = objectValue(await shipStationRequest<unknown>("/environment/webhooks", { method: "POST", body: JSON.stringify(body) }));
   return stringValue(created.webhook_id, created.id);
-}
-
-export async function validateShipStationAddress(address: ShippingAddress) {
-  try {
-    const payload = await shipStationRequest<unknown>("/addresses/validate", {
-      method: "POST",
-      body: JSON.stringify([addressToProvider(address)])
-    });
-    const result = objectValue(arrayValue(payload)[0]);
-    const messages = arrayValue(result.messages).map((message) => {
-      const detail = objectValue(message);
-      return stringValue(detail.message, detail.detail, message) ?? "";
-    }).filter(Boolean);
-    const status = stringValue(result.status) ?? "verified";
-
-    return {
-      address: providerToAddress(result.matched_address ?? result.address, address),
-      status,
-      messages
-    };
-  } catch (error) {
-    if (error instanceof ShipStationError && (error.status === 402 || error.status === 404 || error.status === 405)) {
-      return { address, status: "unverified", messages: ["ShipStation will validate and clean this address with the rate request."] };
-    }
-    throw error;
-  }
 }
 
 export async function getShipStationRates(input: {
