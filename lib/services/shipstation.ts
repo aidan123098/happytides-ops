@@ -87,6 +87,25 @@ function errorMessage(payload: unknown, fallback: string) {
   return stringValue(firstError.message, firstError.error_message, data.message, data.error, fallback) ?? fallback;
 }
 
+function rateFailureMessages(response: JsonObject) {
+  const messages: string[] = [];
+  for (const entry of arrayValue(response.errors)) {
+    const error = objectValue(entry);
+    const message = stringValue(error.message, error.error_message);
+    if (message) messages.push(message);
+  }
+  for (const entry of arrayValue(response.invalid_rates)) {
+    const rate = objectValue(entry);
+    const carrier = stringValue(rate.carrier_friendly_name, rate.carrier_nickname, rate.carrier_code);
+    const service = stringValue(rate.service_type, rate.service_name, rate.service_code);
+    const source = [carrier, service].filter(Boolean).join(" ");
+    for (const value of arrayValue(rate.error_messages)) {
+      if (typeof value === "string" && value.trim()) messages.push(source ? `${source}: ${value}` : value);
+    }
+  }
+  return [...new Set(messages)].slice(0, 6);
+}
+
 async function shipStationRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const apiKey = process.env.SHIPSTATION_API_KEY?.trim();
   if (!apiKey) {
@@ -269,6 +288,14 @@ export async function getShipStationRates(input: {
       estimatedDeliveryAt: stringValue(rate.estimated_delivery_date)
     };
   }).filter((rate): rate is ShippingRate => Boolean(rate));
+
+  if (!rates.length) {
+    const details = rateFailureMessages(response);
+    throw new ShipStationError(`No connected carrier returned a rate.${details.length ? ` ${details.join(" ")}` : ""}`, {
+      status: 200,
+      providerPath: "/v2/rates"
+    });
+  }
 
   return {
     shipmentId: stringValue(payload.shipment_id, response.shipment_id),

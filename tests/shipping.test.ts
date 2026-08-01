@@ -184,6 +184,44 @@ test("ShipStation rate errors retain the upstream path and status", async () => 
   }
 });
 
+test("ShipStation surfaces carrier errors from a successful empty rate response", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SHIPSTATION_API_KEY;
+  process.env.SHIPSTATION_API_KEY = "test-key";
+  globalThis.fetch = async () => Response.json({
+    rate_response: {
+      rates: [],
+      invalid_rates: [{
+        carrier_friendly_name: "UPS",
+        service_type: "Ground",
+        error_messages: ["The ship-from postal code is required."]
+      }],
+      errors: [{ message: "The carrier account cannot provide rates." }]
+    }
+  });
+
+  try {
+    await assert.rejects(() => getShipStationRates({
+      externalShipmentId: "HT-test",
+      warehouseId: "se-warehouse",
+      carrierIds: ["se-carrier"],
+      address,
+      parcel: { packageCode: "package", weightOz: 3, lengthIn: 10, widthIn: 6, heightIn: 1 }
+    }), (error: unknown) => {
+      assert.equal(error instanceof ShipStationError, true);
+      assert.equal((error as ShipStationError).status, 200);
+      assert.equal((error as ShipStationError).providerPath, "/v2/rates");
+      assert.match((error as ShipStationError).message, /carrier account cannot provide rates/i);
+      assert.match((error as ShipStationError).message, /UPS Ground: The ship-from postal code is required\./);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
+    else process.env.SHIPSTATION_API_KEY = originalKey;
+  }
+});
+
 test("an ambiguous ShipStation purchase timeout is marked for reconciliation", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.SHIPSTATION_API_KEY;

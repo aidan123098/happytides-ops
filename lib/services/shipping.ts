@@ -322,7 +322,6 @@ export async function prepareShippingRates(input: {
       parcel
     });
     const rates = sortShippingRates(result.rates);
-    if (!rates.length) throw new Error("No connected carrier returned a rate for this shipment.");
     const correctedAddress = result.correctedAddress;
     await prisma.shippingShipment.update({
       where: { id: shipment.id },
