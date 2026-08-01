@@ -232,7 +232,7 @@ export async function validateShipStationAddress(address: ShippingAddress) {
       messages
     };
   } catch (error) {
-    if (error instanceof ShipStationError && (error.status === 404 || error.status === 405)) {
+    if (error instanceof ShipStationError && (error.status === 402 || error.status === 404 || error.status === 405)) {
       return { address, status: "unverified", messages: ["ShipStation will validate and clean this address with the rate request."] };
     }
     throw error;

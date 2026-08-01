@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 import { canPurchaseShippingLabel, isShippingAddressComplete, shouldAdvanceOrderStage, sortShippingRates, trackingOrderStage } from "@/lib/shipping-policy";
-import { getShipStationRates, purchaseShipStationLabel, ShipStationError } from "@/lib/services/shipstation";
+import { getShipStationRates, purchaseShipStationLabel, ShipStationError, validateShipStationAddress } from "@/lib/services/shipstation";
 import { ShipStationWebhookError, verifyShipStationWebhook } from "@/lib/services/shipstation-webhook";
 import { orderInputSchema } from "@/lib/validation";
 import type { ShippingAddress, ShippingRate } from "@/types/domain";
@@ -101,6 +101,73 @@ test("ShipStation rate and label responses normalize through mocked fetch", asyn
     assert.equal(label.costCents, 600);
     assert.equal(requests[0]?.init?.headers instanceof Headers, false);
     assert.match(String(requests[1]?.init?.body), /"label_layout":"4x6"/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
+    else process.env.SHIPSTATION_API_KEY = originalKey;
+  }
+});
+
+test("ShipStation rate lookup continues when standalone address validation requires a paid plan", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SHIPSTATION_API_KEY;
+  process.env.SHIPSTATION_API_KEY = "test-key";
+  const requests: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    requests.push(url);
+    if (url.endsWith("/addresses/validate")) {
+      return Response.json({ errors: [{ message: "This endpoint requires a paid plan." }] }, { status: 402 });
+    }
+    return Response.json({
+      shipment_id: "se-shipment",
+      ship_to: { name: "Ada Lovelace", address_line1: "123 MAIN ST", city_locality: "TAMPA", state_province: "FL", postal_code: "33602", country_code: "US" },
+      rate_response: {
+        rates: [{
+          rate_id: "se-rate",
+          carrier_id: "se-carrier",
+          carrier_code: "ups",
+          carrier_friendly_name: "UPS",
+          service_code: "ups_ground",
+          service_type: "Ground",
+          shipping_amount: { amount: 7.5, currency: "usd" }
+        }]
+      }
+    });
+  };
+
+  try {
+    const validation = await validateShipStationAddress(address);
+    assert.equal(validation.status, "unverified");
+    const rates = await getShipStationRates({
+      externalShipmentId: "HT-test",
+      warehouseId: "se-warehouse",
+      carrierIds: ["se-carrier"],
+      address: validation.address,
+      parcel: { packageCode: "package", weightOz: 3, lengthIn: 10, widthIn: 6, heightIn: 1 }
+    });
+    assert.equal(rates.rates[0]?.amountCents, 750);
+    assert.equal(rates.correctedAddress.line1, "123 MAIN ST");
+    assert.deepEqual(requests.map((url) => new URL(url).pathname), ["/v2/addresses/validate", "/v2/rates"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
+    else process.env.SHIPSTATION_API_KEY = originalKey;
+  }
+});
+
+test("ShipStation address validation still rejects authorization failures", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SHIPSTATION_API_KEY;
+  process.env.SHIPSTATION_API_KEY = "test-key";
+  globalThis.fetch = async () => Response.json({ errors: [{ message: "Forbidden." }] }, { status: 403 });
+
+  try {
+    await assert.rejects(() => validateShipStationAddress(address), (error: unknown) => {
+      assert.equal(error instanceof ShipStationError, true);
+      assert.equal((error as ShipStationError).status, 403);
+      return true;
+    });
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
