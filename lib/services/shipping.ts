@@ -175,7 +175,7 @@ export async function saveShippingConfig(input: {
   if (input.enabled) {
     const webhookSecret = process.env.SHIPSTATION_WEBHOOK_SECRET?.trim();
     if (!webhookSecret) throw new Error("Add SHIPSTATION_WEBHOOK_SECRET before enabling shipping labels.");
-    const appUrl = (process.env.APP_URL || process.env.AUTH_URL)?.replace(/\/$/, "");
+    const appUrl = (process.env.APP_URL || process.env.AUTH_URL || (request ? new URL(request.url).origin : "")).replace(/\/$/, "");
     if (!appUrl?.startsWith("https://")) throw new Error("Set APP_URL to the production HTTPS address before enabling shipping labels.");
     const setup = await getShipStationSetup();
     if (!setup.warehouses.some((warehouse) => warehouse.id === input.warehouseId)) throw new Error("The selected ShipStation warehouse is no longer connected.");
