@@ -1,6 +1,6 @@
 import { affiliates as seedAffiliates, customers as seedCustomers, inventoryBatches as seedInventoryBatches, inventoryMovements as seedInventoryMovements, orders as seedOrders, products as seedProducts } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth";
-import type { Affiliate, Customer, InventoryBatch, Order, OrderStage, Product } from "@/types/domain";
+import type { Affiliate, Customer, InventoryBatch, Order, OrderStage, Product, ShippingAddress } from "@/types/domain";
 import type { OperationalStore } from "@/lib/services/operational-data";
 
 type OrderPayload = {
@@ -13,6 +13,9 @@ type OrderPayload = {
   squarePaymentId?: string;
   status?: OrderStage;
   fulfillmentStatus?: Exclude<OrderStage, "paid">;
+  deliveryMethod: "ship" | "pickup";
+  shippingAddress?: ShippingAddress;
+  saveShippingAddress?: boolean;
   createdAt?: string;
   items: Array<{
     productId: string;
@@ -259,6 +262,8 @@ function buildOrder(payload: OrderPayload, actor: SessionUser, existing?: Order)
     paymentStatus: status === "unfulfilled" ? "pending" : "paid",
     fulfillmentStatus: status === "delivered" ? "delivered" : status === "shipped" ? "shipped" : status === "packed" ? "packed" : "unfulfilled",
     status,
+    deliveryMethod: payload.deliveryMethod,
+    shippingAddress: payload.deliveryMethod === "ship" ? payload.shippingAddress : undefined,
     createdAt: payload.createdAt ? new Date(payload.createdAt).toISOString() : existing?.createdAt ?? todayIso(),
     notes: payload.notes
   };

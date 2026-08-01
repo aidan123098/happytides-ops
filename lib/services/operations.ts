@@ -1,11 +1,12 @@
 import type { Prisma } from "@prisma/client";
-import { FulfillmentStatus, InventoryMovementType, InventoryStatus, PaymentMethod, PaymentStatus, CustomerSource, CustomerStatus, OrderStatus } from "@prisma/client";
+import { FulfillmentStatus, InventoryMovementType, InventoryStatus, OrderDeliveryMethod, PaymentMethod, PaymentStatus, CustomerSource, CustomerStatus, OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { transitionInventoryCounts } from "@/lib/inventory-counts";
 import { isPaidStage, isReservedStage, isSoldStage, orderStageFromPersistence, persistenceForOrderStage, type OrderStage } from "@/lib/order-stage";
 import { adjustedInventoryTotal, assertLotCanAllocate } from "@/lib/services/inventory-policy";
+import { shouldAdvanceOrderStage } from "@/lib/shipping-policy";
 import type { Customer } from "@/types/domain";
 
 type Tx = Prisma.TransactionClient;
@@ -20,6 +21,21 @@ type OrderPayload = {
   squarePaymentId?: string;
   status?: OrderStage;
   fulfillmentStatus?: Exclude<OrderStage, "paid">;
+  deliveryMethod: "ship" | "pickup";
+  shippingAddress?: {
+    recipientName: string;
+    company?: string;
+    line1: string;
+    line2?: string;
+    city: string;
+    region: string;
+    postalCode: string;
+    country: "US";
+    phone?: string;
+    email?: string;
+    residential: boolean;
+  };
+  saveShippingAddress?: boolean;
   createdAt?: string;
   items: Array<{
     productId: string;
@@ -30,6 +46,85 @@ type OrderPayload = {
   }>;
   notes?: string;
 };
+
+function orderShippingData(payload: Pick<OrderPayload, "deliveryMethod" | "shippingAddress">) {
+  const address = payload.deliveryMethod === "ship" ? payload.shippingAddress : undefined;
+
+  return {
+    deliveryMethod: payload.deliveryMethod === "pickup" ? OrderDeliveryMethod.PICKUP : OrderDeliveryMethod.SHIP,
+    shipToName: address?.recipientName,
+    shipToCompany: address?.company || null,
+    shipToLine1: address?.line1,
+    shipToLine2: address?.line2 || null,
+    shipToCity: address?.city,
+    shipToRegion: address?.region,
+    shipToPostalCode: address?.postalCode,
+    shipToCountry: address?.country,
+    shipToPhone: address?.phone || null,
+    shipToEmail: address?.email || null,
+    shipToResidential: address?.residential ?? true
+  };
+}
+
+async function saveDefaultShippingAddress(tx: Tx, customerId: string, payload: Pick<OrderPayload, "deliveryMethod" | "shippingAddress" | "saveShippingAddress">) {
+  const address = payload.deliveryMethod === "ship" && payload.saveShippingAddress ? payload.shippingAddress : undefined;
+  if (!address) return;
+
+  const current = await tx.customerShippingAddress.findFirst({
+    where: { customerId, isDefault: true, archivedAt: null },
+    orderBy: { updatedAt: "desc" }
+  });
+  const data = {
+    recipientName: address.recipientName,
+    company: address.company || null,
+    line1: address.line1,
+    line2: address.line2 || null,
+    city: address.city,
+    region: address.region,
+    postalCode: address.postalCode,
+    country: address.country,
+    phone: address.phone || null,
+    email: address.email || null,
+    residential: address.residential,
+    isDefault: true
+  };
+
+  await tx.customerShippingAddress.updateMany({ where: { customerId, isDefault: true, archivedAt: null }, data: { isDefault: false } });
+  if (current) {
+    await tx.customerShippingAddress.update({ where: { id: current.id }, data });
+  } else {
+    await tx.customerShippingAddress.create({ data: { customerId, ...data } });
+  }
+}
+
+function shippingAddressChanged(existing: {
+  deliveryMethod: OrderDeliveryMethod;
+  shipToName: string | null;
+  shipToCompany: string | null;
+  shipToLine1: string | null;
+  shipToLine2: string | null;
+  shipToCity: string | null;
+  shipToRegion: string | null;
+  shipToPostalCode: string | null;
+  shipToCountry: string | null;
+  shipToPhone: string | null;
+  shipToEmail: string | null;
+  shipToResidential: boolean;
+}, payload: Pick<OrderPayload, "deliveryMethod" | "shippingAddress">) {
+  const next = orderShippingData(payload);
+  return existing.deliveryMethod !== next.deliveryMethod
+    || existing.shipToName !== (next.shipToName ?? null)
+    || existing.shipToCompany !== next.shipToCompany
+    || existing.shipToLine1 !== (next.shipToLine1 ?? null)
+    || existing.shipToLine2 !== next.shipToLine2
+    || existing.shipToCity !== (next.shipToCity ?? null)
+    || existing.shipToRegion !== (next.shipToRegion ?? null)
+    || existing.shipToPostalCode !== (next.shipToPostalCode ?? null)
+    || existing.shipToCountry !== (next.shipToCountry ?? null)
+    || existing.shipToPhone !== next.shipToPhone
+    || existing.shipToEmail !== next.shipToEmail
+    || existing.shipToResidential !== next.shipToResidential;
+}
 
 function requestedStage(payload: Pick<OrderPayload, "status" | "fulfillmentStatus">, fallback: OrderStage = "unfulfilled") {
   return payload.status ?? payload.fulfillmentStatus ?? fallback;
@@ -278,6 +373,7 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
         fulfillmentStatus: persistedStage.fulfillmentStatus,
         status: persistedStage.status,
         orderSource: payload.locationId ?? "Manual entry",
+        ...orderShippingData(payload),
         affiliateId: payload.affiliateId,
         notes: payload.notes,
         createdAt,
@@ -305,6 +401,8 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
       include: { items: true }
     });
 
+    await saveDefaultShippingAddress(tx, payload.customerId, payload);
+
     await transitionOrderInventory(tx, [], "unfulfilled", order.items, stage, actor, order.orderNumber);
 
     if (isPaidStage(stage)) {
@@ -324,6 +422,11 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
       include: { items: true, payments: true }
     });
     if (!existing || existing.archivedAt) throw new Error("Order not found.");
+
+    if (shippingAddressChanged(existing, payload)) {
+      const activeLabel = await tx.shippingShipment.findFirst({ where: { orderId, activeKey: { not: null } }, select: { id: true } });
+      if (activeLabel) throw new Error("Void the active shipping label before changing this order's address or delivery method.");
+    }
 
     const previousStage = orderStageFromPersistence(existing);
     const stage = requestedStage(payload, previousStage);
@@ -346,6 +449,7 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
         totalCents,
         paidTo: payload.paidTo,
         orderSource: payload.locationId ?? existing.orderSource,
+        ...orderShippingData(payload),
         paymentStatus: persistedStage.paymentStatus,
         fulfillmentStatus: persistedStage.fulfillmentStatus,
         status: persistedStage.status,
@@ -378,6 +482,8 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
       include: { items: true }
     });
 
+    await saveDefaultShippingAddress(tx, payload.customerId, payload);
+
     if (isPaidStage(previousStage) || isPaidStage(stage)) {
       await Promise.all([
         recalculateCustomerStats(tx, existing.customerId),
@@ -392,8 +498,9 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
   });
 }
 
-export async function changeOrderStatus(orderId: string, stage: OrderStage, actor: SessionUser, request?: Request) {
+async function setOrderStatus(orderId: string, stage: OrderStage, actor: SessionUser, request?: Request, forwardOnly = false) {
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${orderId}))`;
     const existing = await tx.order.findUnique({
       relationLoadStrategy: "join",
       where: { id: orderId },
@@ -402,6 +509,7 @@ export async function changeOrderStatus(orderId: string, stage: OrderStage, acto
     if (!existing || existing.archivedAt) throw new Error("Order not found.");
 
     const previousStage = orderStageFromPersistence(existing);
+    if (forwardOnly && !shouldAdvanceOrderStage(previousStage, stage)) return { order: existing, changedBatchIds: [] as string[] };
     if (previousStage === stage) return { order: existing, changedBatchIds: [] as string[] };
 
     const changedBatchIds = await transitionOrderInventory(tx, existing.items, previousStage, existing.items, stage, actor, existing.orderNumber);
@@ -433,6 +541,14 @@ export async function changeOrderStatus(orderId: string, stage: OrderStage, acto
   });
 }
 
+export function changeOrderStatus(orderId: string, stage: OrderStage, actor: SessionUser, request?: Request) {
+  return setOrderStatus(orderId, stage, actor, request);
+}
+
+export function advanceOrderStatus(orderId: string, stage: OrderStage, actor: SessionUser) {
+  return setOrderStatus(orderId, stage, actor, undefined, true);
+}
+
 export async function cancelOrder(orderId: string, actor: SessionUser, request?: Request) {
   return prisma.$transaction(async (tx) => {
     const existing = await tx.order.findUnique({
@@ -441,6 +557,9 @@ export async function cancelOrder(orderId: string, actor: SessionUser, request?:
       include: { items: true }
     });
     if (!existing || existing.archivedAt) throw new Error("Order not found.");
+
+    const activeLabel = await tx.shippingShipment.findFirst({ where: { orderId, activeKey: { not: null } }, select: { id: true } });
+    if (activeLabel) throw new Error("Void the active shipping label before removing this order.");
 
     const previousStage = orderStageFromPersistence(existing);
     await transitionOrderInventory(tx, existing.items, previousStage, [], "unfulfilled", actor, existing.orderNumber);

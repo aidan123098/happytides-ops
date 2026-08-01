@@ -3,11 +3,13 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth";
+import { ShippingSettings } from "@/components/shipping-settings";
+import { getShippingConfig } from "@/lib/services/shipping";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const currentUser = await getCurrentUser();
+  const [currentUser, shippingConfig] = await Promise.all([getCurrentUser(), getShippingConfig()]);
   const currentRoles = currentUser?.roles ?? ["VIEWER"];
 
   return (
@@ -57,6 +59,9 @@ export default async function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+      </section>
+      <section className="max-w-5xl">
+        <ShippingSettings initialConfig={shippingConfig} />
       </section>
     </div>
   );

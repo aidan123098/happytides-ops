@@ -1,8 +1,9 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { Edit3, Filter, Save, Trash2, X } from "lucide-react";
-import type { InventoryBatch, Order, PaymentRecipient, Product } from "@/types/domain";
+import Link from "next/link";
+import { Edit3, Filter, PackageCheck, Save, Trash2, X } from "lucide-react";
+import type { InventoryBatch, Order, PaymentRecipient, Product, ShippingAddress } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,8 @@ import { productOptionLabel } from "@/lib/product-labels";
 import { paymentRecipientLabels, paymentRecipients } from "@/lib/payment-recipients";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency, formatCurrencyOrNA, formatNumber, formatNumberOrNA } from "@/lib/utils";
+import { emptyShippingAddress, ShippingAddressFields } from "@/components/shipping-address-fields";
+import { isShippingAddressComplete } from "@/lib/shipping-policy";
 
 type OrdersWorkbenchProps = {
   initialOrders: Order[];
@@ -87,6 +90,8 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   const [editStatus, setEditStatus] = useState<Order["status"]>("unfulfilled");
   const [editCreatedAt, setEditCreatedAt] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editDeliveryMethod, setEditDeliveryMethod] = useState<"ship" | "pickup">("ship");
+  const [editShippingAddress, setEditShippingAddress] = useState<ShippingAddress>(emptyShippingAddress);
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
   const [removingOrderIds, setRemovingOrderIds] = useState<string[]>([]);
   const [updatingStatusIds, setUpdatingStatusIds] = useState<string[]>([]);
@@ -174,7 +179,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
 
     return issues;
   }, [batchesById, editQuantityByBatch, originalQuantityByBatch]);
-  const canSaveEdit = allocationIssues.length === 0;
+  const canSaveEdit = allocationIssues.length === 0 && (editDeliveryMethod === "pickup" || isShippingAddressComplete(editShippingAddress));
 
   const filteredOrders = orders.filter((order) => {
     const haystack = [
@@ -222,6 +227,8 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     setEditStatus(order.status);
     setEditCreatedAt(dateInputValue(order.createdAt));
     setEditNotes(order.notes ?? "");
+    setEditDeliveryMethod(order.deliveryMethod);
+    setEditShippingAddress(order.shippingAddress ?? { ...emptyShippingAddress, recipientName: order.customerName });
   }
 
   function updateEditLine(id: string, patch: Partial<EditableLine>) {
@@ -272,6 +279,9 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           paidTo: editPaidTo || undefined,
           status: editStatus,
           createdAt: editCreatedAt,
+          deliveryMethod: editDeliveryMethod,
+          shippingAddress: editDeliveryMethod === "ship" ? editShippingAddress : undefined,
+          saveShippingAddress: false,
           items: editLines.map((line) => ({
             productId: line.productId,
             inventoryBatchId: line.inventoryBatchId,
@@ -354,27 +364,38 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   async function removeOrder(order: Order) {
     if (savingOrderId === order.id || removingOrderIds.includes(order.id)) return;
 
-    const confirmed = window.confirm(`Remove ${order.orderNumber}? Inventory will be restored for the products in this order.`);
+    const confirmed = window.confirm(order.shippingLabel
+      ? `Void the live label, then remove ${order.orderNumber}? Inventory will be restored for the products in this order.`
+      : `Remove ${order.orderNumber}? Inventory will be restored for the products in this order.`);
 
     if (!confirmed) return;
 
     setRemovingOrderIds((current) => [...current, order.id]);
-    setOrders((current) => current.filter((candidate) => candidate.id !== order.id));
-    setMessage({ tone: "amber", text: `Removing ${order.orderNumber}...` });
+    setMessage({ tone: "amber", text: order.shippingLabel ? `Voiding the label for ${order.orderNumber}...` : `Removing ${order.orderNumber}...` });
 
     try {
+      if (order.shippingLabel) {
+        const voidResponse = await fetch(`/api/shipping/labels/${encodeURIComponent(order.shippingLabel.id)}/void`, { method: "PUT" });
+        const voidPayload = await voidResponse.json().catch(() => ({}));
+        if (!voidResponse.ok) {
+          setMessage({ tone: "red", text: voidPayload.error ?? "The label could not be voided, so the order was not removed." });
+          return;
+        }
+        setOrders((current) => current.map((candidate) => candidate.id === order.id ? { ...candidate, shippingLabel: undefined } : candidate));
+      }
+
+      setMessage({ tone: "amber", text: `Removing ${order.orderNumber}...` });
       const response = await fetch(`/api/orders?orderId=${encodeURIComponent(order.id)}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        setOrders((current) => visibleOrders([...current, order]));
         setMessage({ tone: "red", text: payload.error ?? "Order could not be removed." });
         return;
       }
 
+      setOrders((current) => current.filter((candidate) => candidate.id !== order.id));
       setMessage({ tone: "green", text: `${order.orderNumber} removed and stock restored.` });
     } catch {
-      setOrders((current) => visibleOrders([...current, order]));
       setMessage({ tone: "red", text: "Order could not be removed. Check the local dev server and try again." });
     } finally {
       setRemovingOrderIds((current) => current.filter((id) => id !== order.id));
@@ -383,6 +404,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
 
   function renderEditPanel(order: Order) {
     const savingThisOrder = savingOrderId === order.id;
+    const addressLocked = Boolean(order.shippingLabel);
 
     return (
       <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -420,6 +442,26 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             <span className="text-xs font-semibold uppercase text-slate-500">Notes</span>
             <Input className="mt-1" value={editNotes} onChange={(event) => setEditNotes(event.target.value)} />
           </label>
+        </div>
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase text-slate-500">Fulfillment</div>
+              {addressLocked ? <p className="mt-1 text-xs text-amber-700">Void the live label before changing the method or address.</p> : null}
+            </div>
+            <div className="grid grid-cols-2 rounded-md bg-slate-200/70 p-1">
+              {(["ship", "pickup"] as const).map((method) => (
+                <button key={method} type="button" disabled={addressLocked || savingThisOrder} className={`rounded px-3 py-1.5 text-xs font-semibold ${editDeliveryMethod === method ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => setEditDeliveryMethod(method)}>
+                  {method === "ship" ? "Ship" : "Local pickup"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {editDeliveryMethod === "ship" ? (
+            <div className="mt-3">
+              <ShippingAddressFields value={editShippingAddress} onChange={setEditShippingAddress} disabled={addressLocked || savingThisOrder} />
+            </div>
+          ) : null}
         </div>
         <div className="space-y-2">
           {editLines.map((line) => {
@@ -499,6 +541,20 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           </div>
         </div>
       </div>
+    );
+  }
+
+  function shippingAction(order: Order) {
+    if (order.deliveryMethod !== "ship") return null;
+    if (!order.shippingLabel && order.status !== "paid" && order.status !== "packed") return null;
+    return (
+      <Link
+        href={`/shipping?orderId=${encodeURIComponent(order.id)}`}
+        className="inline-flex h-8 flex-1 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-900 shadow-sm transition-colors hover:bg-slate-50 lg:flex-none"
+      >
+        <PackageCheck size={14} />
+        {order.shippingLabel ? "Reprint label" : "Create label"}
+      </Link>
     );
   }
 
@@ -610,6 +666,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
               </div>
 
               <div className="mt-3 flex gap-2">
+                {shippingAction(order)}
                 <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => startEdit(order)} disabled={removingThisOrder || savingOrderId === order.id}>
                   <Edit3 size={15} />
                   Edit
@@ -645,6 +702,7 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                 <Td>{displayDate(order.createdAt)}</Td>
                 <Td>
                   <div className="flex gap-2">
+                    {shippingAction(order)}
                     <Button variant="secondary" className="h-8 px-2" onClick={() => startEdit(order)} disabled={removingThisOrder || savingOrderId === order.id}>
                       <Edit3 size={14} />
                       Edit

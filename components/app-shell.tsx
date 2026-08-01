@@ -18,6 +18,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Truck,
   Users,
   X
 } from "lucide-react";
@@ -28,6 +29,7 @@ import type { SessionUser } from "@/lib/auth";
 const navItems = [
   { href: "/", label: "Overview", detail: "Command center", icon: LayoutDashboard },
   { href: "/orders", label: "Orders", detail: "Sales workflow", icon: ClipboardList },
+  { href: "/shipping", label: "Shipping", detail: "Labels and tracking", icon: Truck },
   { href: "/customers", label: "Customers", detail: "CRM records", icon: Users },
   { href: "/products", label: "Products", detail: "Catalog and pricing", icon: Package },
   { href: "/inventory", label: "Inventory", detail: "Stock counts", icon: Boxes },

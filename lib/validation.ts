@@ -4,6 +4,20 @@ import { paymentRecipients } from "@/lib/payment-recipients";
 const orderStatusSchema = z.enum(["unfulfilled", "paid", "packed", "shipped", "delivered"]);
 const paidToSchema = z.enum(paymentRecipients);
 
+export const shippingAddressSchema = z.object({
+  recipientName: z.string().trim().min(1).max(160),
+  company: z.string().trim().max(160).optional(),
+  line1: z.string().trim().min(1).max(200),
+  line2: z.string().trim().max(200).optional(),
+  city: z.string().trim().min(1).max(120),
+  region: z.string().trim().length(2).transform((value) => value.toUpperCase()),
+  postalCode: z.string().trim().regex(/^\d{5}(?:-\d{4})?$/, "Enter a valid US ZIP code."),
+  country: z.literal("US").default("US"),
+  phone: z.string().trim().max(40).optional(),
+  email: z.union([z.string().trim().email(), z.literal("")]).optional(),
+  residential: z.boolean().default(true)
+});
+
 const optionalEmailSchema = z.preprocess((value) => value === "" ? "N/A" : value, z.union([z.string().email(), z.literal("N/A")]).optional());
 const optionalPhoneSchema = z.preprocess((value) => value === "" ? "N/A" : value, z.union([z.string().min(1), z.literal("N/A")]).optional());
 
@@ -64,7 +78,7 @@ export const affiliateUpdateSchema = affiliateInputSchema.partial().extend({
   affiliateId: z.string().min(1)
 });
 
-export const orderInputSchema = z.object({
+const orderInputBaseSchema = z.object({
   customerId: z.string().min(1),
   customerName: z.string().max(160).optional(),
   affiliateId: z.string().min(1).optional(),
@@ -74,6 +88,9 @@ export const orderInputSchema = z.object({
   squarePaymentId: z.string().optional(),
   status: orderStatusSchema.optional(),
   fulfillmentStatus: z.enum(["unfulfilled", "packed", "shipped", "delivered"]).optional(),
+  deliveryMethod: z.enum(["ship", "pickup"]).default("ship"),
+  shippingAddress: shippingAddressSchema.optional(),
+  saveShippingAddress: z.boolean().default(false),
   createdAt: z.string().optional(),
   items: z
     .array(
@@ -89,9 +106,17 @@ export const orderInputSchema = z.object({
   notes: z.string().max(1000).optional()
 });
 
-export const orderUpdateSchema = orderInputSchema.extend({
+function requireShippingAddress(payload: { deliveryMethod: "ship" | "pickup"; shippingAddress?: unknown }, context: z.RefinementCtx) {
+  if (payload.deliveryMethod === "ship" && !payload.shippingAddress) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["shippingAddress"], message: "A complete shipping address is required." });
+  }
+}
+
+export const orderInputSchema = orderInputBaseSchema.superRefine(requireShippingAddress);
+
+export const orderUpdateSchema = orderInputBaseSchema.extend({
   orderId: z.string().min(1)
-});
+}).superRefine(requireShippingAddress);
 
 export const orderStatusUpdateSchema = z.object({
   status: orderStatusSchema
@@ -117,4 +142,35 @@ export const inventoryBatchInputSchema = z.object({
   coaDocumentUrl: z.string().optional(),
   status: z.enum(["available", "reserved", "sold", "expired", "quarantined", "damaged"]).default("available"),
   reason: z.string().min(4)
+});
+
+export const shippingConfigInputSchema = z.object({
+  enabled: z.boolean(),
+  warehouseId: z.string().trim().min(1),
+  enabledCarrierIds: z.array(z.string().trim().min(1)).min(1),
+  defaultPackageCode: z.string().trim().min(1).default("package"),
+  defaultWeightOz: z.number().positive(),
+  defaultLengthIn: z.number().positive(),
+  defaultWidthIn: z.number().positive(),
+  defaultHeightIn: z.number().positive(),
+  labelFormat: z.literal("pdf").default("pdf"),
+  labelLayout: z.literal("4x6").default("4x6")
+});
+
+const parcelOverrideSchema = z.object({
+  packageCode: z.string().trim().min(1).default("package"),
+  weightOz: z.number().positive(),
+  lengthIn: z.number().positive(),
+  widthIn: z.number().positive(),
+  heightIn: z.number().positive()
+});
+
+export const shippingRateRequestSchema = z.object({
+  orderId: z.string().min(1),
+  parcel: parcelOverrideSchema.optional()
+});
+
+export const shippingLabelPurchaseSchema = z.object({
+  shipmentId: z.string().min(1),
+  rateId: z.string().min(1)
 });

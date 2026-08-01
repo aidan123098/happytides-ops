@@ -147,6 +147,24 @@ enum OrderStatus {
   RETURNED
 }
 
+enum OrderDeliveryMethod {
+  SHIP
+  PICKUP
+}
+
+enum ShippingShipmentStatus {
+  DRAFT
+  PURCHASING
+  COMPLETED
+  IN_TRANSIT
+  DELIVERED
+  EXCEPTION
+  VOID_PENDING
+  VOIDED
+  ERROR
+  RECONCILING
+}
+
 enum AccountType {
   RETAIL_CUSTOMER
   WHOLESALE_ACCOUNT
@@ -230,6 +248,7 @@ model User {
   activities          UserActivity[]
   assignedAccounts    Account[]            @relation("AssignedSalesRep")
   orders              Order[]              @relation("StaffOrders")
+  shippingShipments   ShippingShipment[]   @relation("ShippingCreator")
   inventoryMovements  InventoryMovement[]
   auditLogs           AuditLog[]
   createdAt           DateTime             @default(now()) @map("created_at")
@@ -341,34 +360,59 @@ model UserRole {
 }
 
 model Customer {
-  id                     String                  @id @default(cuid())
-  firstName              String                  @map("first_name")
-  lastName               String                  @map("last_name")
-  email                  String?                 @unique
+  id                     String                    @id @default(cuid())
+  firstName              String                    @map("first_name")
+  lastName               String                    @map("last_name")
+  email                  String?                   @unique
   phone                  String?
-  smsConsent             Boolean                 @default(false) @map("sms_consent")
-  emailConsent           Boolean                 @default(false) @map("email_consent")
-  firstPurchaseAt        DateTime?               @map("first_purchase_at")
-  lastPurchaseAt         DateTime?               @map("last_purchase_at")
-  totalSpendCents        Int                     @default(0) @map("total_spend_cents")
-  orderCount             Int                     @default(0) @map("order_count")
-  averageOrderValueCents Int                     @default(0) @map("average_order_value_cents")
-  favoriteProductId      String?                 @map("favorite_product_id")
-  favoriteProduct        Product?                @relation(fields: [favoriteProductId], references: [id])
+  smsConsent             Boolean                   @default(false) @map("sms_consent")
+  emailConsent           Boolean                   @default(false) @map("email_consent")
+  firstPurchaseAt        DateTime?                 @map("first_purchase_at")
+  lastPurchaseAt         DateTime?                 @map("last_purchase_at")
+  totalSpendCents        Int                       @default(0) @map("total_spend_cents")
+  orderCount             Int                       @default(0) @map("order_count")
+  averageOrderValueCents Int                       @default(0) @map("average_order_value_cents")
+  favoriteProductId      String?                   @map("favorite_product_id")
+  favoriteProduct        Product?                  @relation(fields: [favoriteProductId], references: [id])
   notes                  String?
-  source                 CustomerSource          @default(WALK_IN)
-  status                 CustomerStatus          @default(NEW)
-  squareCustomerId       String?                 @unique @map("square_customer_id")
+  source                 CustomerSource            @default(WALK_IN)
+  status                 CustomerStatus            @default(NEW)
+  squareCustomerId       String?                   @unique @map("square_customer_id")
   orders                 Order[]
-  accountId              String?                 @map("account_id")
-  account                Account?                @relation(fields: [accountId], references: [id])
+  shippingAddresses      CustomerShippingAddress[]
+  accountId              String?                   @map("account_id")
+  account                Account?                  @relation(fields: [accountId], references: [id])
   tags                   CustomerTagAssignment[]
-  createdAt              DateTime                @default(now()) @map("created_at")
-  updatedAt              DateTime                @updatedAt @map("updated_at")
-  archivedAt             DateTime?               @map("archived_at")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+  archivedAt             DateTime?                 @map("archived_at")
 
   @@index([lastName, firstName])
   @@map("customers")
+}
+
+model CustomerShippingAddress {
+  id            String    @id @default(cuid())
+  customerId    String    @map("customer_id")
+  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  recipientName String    @map("recipient_name")
+  company       String?
+  line1         String
+  line2         String?
+  city          String
+  region        String
+  postalCode    String    @map("postal_code")
+  country       String    @default("US")
+  phone         String?
+  email         String?
+  residential   Boolean   @default(true)
+  isDefault     Boolean   @default(true) @map("is_default")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  archivedAt    DateTime? @map("archived_at")
+
+  @@index([customerId, isDefault])
+  @@map("customer_shipping_addresses")
 }
 
 model Account {
@@ -707,39 +751,150 @@ model StaffLocation {
 }
 
 model Order {
-  id                String            @id @default(cuid())
-  orderNumber       String            @unique @map("order_number")
-  customerId        String            @map("customer_id")
-  customer          Customer          @relation(fields: [customerId], references: [id])
-  staffMemberId     String            @map("staff_member_id")
-  staffMember       User              @relation("StaffOrders", fields: [staffMemberId], references: [id])
-  locationId        String?           @map("location_id")
-  location          StaffLocation?    @relation(fields: [locationId], references: [id])
-  subtotalCents     Int               @map("subtotal_cents")
-  discountCents     Int               @default(0) @map("discount_cents")
-  taxCents          Int               @default(0) @map("tax_cents")
-  totalCents        Int               @map("total_cents")
-  paymentStatus     PaymentStatus     @default(PENDING) @map("payment_status")
-  fulfillmentStatus FulfillmentStatus @default(UNFULFILLED) @map("fulfillment_status")
-  status            OrderStatus       @default(PAID)
-  accountId         String?           @map("account_id")
-  account           Account?          @relation(fields: [accountId], references: [id])
-  orderSource       String?           @map("order_source")
-  paidTo            String?           @map("paid_to")
-  affiliateId       String?           @map("affiliate_id")
-  affiliate         Affiliate?        @relation(fields: [affiliateId], references: [id])
-  squareOrderId     String?           @unique @map("square_order_id")
+  id                String              @id @default(cuid())
+  orderNumber       String              @unique @map("order_number")
+  customerId        String              @map("customer_id")
+  customer          Customer            @relation(fields: [customerId], references: [id])
+  staffMemberId     String              @map("staff_member_id")
+  staffMember       User                @relation("StaffOrders", fields: [staffMemberId], references: [id])
+  locationId        String?             @map("location_id")
+  location          StaffLocation?      @relation(fields: [locationId], references: [id])
+  subtotalCents     Int                 @map("subtotal_cents")
+  discountCents     Int                 @default(0) @map("discount_cents")
+  taxCents          Int                 @default(0) @map("tax_cents")
+  totalCents        Int                 @map("total_cents")
+  paymentStatus     PaymentStatus       @default(PENDING) @map("payment_status")
+  fulfillmentStatus FulfillmentStatus   @default(UNFULFILLED) @map("fulfillment_status")
+  status            OrderStatus         @default(PAID)
+  deliveryMethod    OrderDeliveryMethod @default(SHIP) @map("delivery_method")
+  shipToName        String?             @map("ship_to_name")
+  shipToCompany     String?             @map("ship_to_company")
+  shipToLine1       String?             @map("ship_to_line1")
+  shipToLine2       String?             @map("ship_to_line2")
+  shipToCity        String?             @map("ship_to_city")
+  shipToRegion      String?             @map("ship_to_region")
+  shipToPostalCode  String?             @map("ship_to_postal_code")
+  shipToCountry     String?             @default("US") @map("ship_to_country")
+  shipToPhone       String?             @map("ship_to_phone")
+  shipToEmail       String?             @map("ship_to_email")
+  shipToResidential Boolean             @default(true) @map("ship_to_residential")
+  accountId         String?             @map("account_id")
+  account           Account?            @relation(fields: [accountId], references: [id])
+  orderSource       String?             @map("order_source")
+  paidTo            String?             @map("paid_to")
+  affiliateId       String?             @map("affiliate_id")
+  affiliate         Affiliate?          @relation(fields: [affiliateId], references: [id])
+  squareOrderId     String?             @unique @map("square_order_id")
   notes             String?
-  canceledAt        DateTime?         @map("canceled_at")
-  refundedAt        DateTime?         @map("refunded_at")
+  canceledAt        DateTime?           @map("canceled_at")
+  refundedAt        DateTime?           @map("refunded_at")
   items             OrderItem[]
   payments          Payment[]
-  createdAt         DateTime          @default(now()) @map("created_at")
-  updatedAt         DateTime          @updatedAt @map("updated_at")
-  archivedAt        DateTime?         @map("archived_at")
+  shippingShipments ShippingShipment[]
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  archivedAt        DateTime?           @map("archived_at")
 
   @@index([createdAt])
   @@map("orders")
+}
+
+model ShippingConfig {
+  id                 String   @id @default("default")
+  provider           String   @default("shipstation")
+  enabled            Boolean  @default(false)
+  warehouseId        String?  @map("warehouse_id")
+  enabledCarrierIds  Json?    @map("enabled_carrier_ids")
+  defaultPackageCode String   @default("package") @map("default_package_code")
+  defaultWeightOz    Decimal? @map("default_weight_oz") @db.Decimal(10, 2)
+  defaultLengthIn    Decimal? @map("default_length_in") @db.Decimal(10, 2)
+  defaultWidthIn     Decimal? @map("default_width_in") @db.Decimal(10, 2)
+  defaultHeightIn    Decimal? @map("default_height_in") @db.Decimal(10, 2)
+  labelFormat        String   @default("pdf") @map("label_format")
+  labelLayout        String   @default("4x6") @map("label_layout")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("shipping_config")
+}
+
+model ShippingShipment {
+  id                  String                 @id @default(cuid())
+  orderId             String                 @map("order_id")
+  order               Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdById         String                 @map("created_by_id")
+  createdBy           User                   @relation("ShippingCreator", fields: [createdById], references: [id])
+  provider            String                 @default("shipstation")
+  status              ShippingShipmentStatus @default(DRAFT)
+  activeKey           String?                @unique @map("active_key")
+  externalShipmentId  String                 @unique @map("external_shipment_id")
+  providerShipmentId  String?                @unique @map("provider_shipment_id")
+  providerRateId      String?                @map("provider_rate_id")
+  quotedRates         Json?                  @map("quoted_rates")
+  providerLabelId     String?                @unique @map("provider_label_id")
+  warehouseId         String                 @map("warehouse_id")
+  sourceAddressHash   String                 @map("source_address_hash")
+  carrierId           String?                @map("carrier_id")
+  carrierCode         String?                @map("carrier_code")
+  serviceCode         String?                @map("service_code")
+  serviceName         String?                @map("service_name")
+  packageCode         String                 @default("package") @map("package_code")
+  weightOz            Decimal                @map("weight_oz") @db.Decimal(10, 2)
+  lengthIn            Decimal                @map("length_in") @db.Decimal(10, 2)
+  widthIn             Decimal                @map("width_in") @db.Decimal(10, 2)
+  heightIn            Decimal                @map("height_in") @db.Decimal(10, 2)
+  shipToName          String                 @map("ship_to_name")
+  shipToCompany       String?                @map("ship_to_company")
+  shipToLine1         String                 @map("ship_to_line1")
+  shipToLine2         String?                @map("ship_to_line2")
+  shipToCity          String                 @map("ship_to_city")
+  shipToRegion        String                 @map("ship_to_region")
+  shipToPostalCode    String                 @map("ship_to_postal_code")
+  shipToCountry       String                 @default("US") @map("ship_to_country")
+  shipToPhone         String?                @map("ship_to_phone")
+  shipToEmail         String?                @map("ship_to_email")
+  shipToResidential   Boolean                @default(true) @map("ship_to_residential")
+  postageCostCents    Int?                   @map("postage_cost_cents")
+  currency            String                 @default("usd")
+  trackingNumber      String?                @map("tracking_number")
+  trackingUrl         String?                @map("tracking_url")
+  trackingStatus      String                 @default("unknown") @map("tracking_status")
+  trackingDetail      String?                @map("tracking_detail")
+  labelFormat         String                 @default("pdf") @map("label_format")
+  labelLayout         String                 @default("4x6") @map("label_layout")
+  labelDownloadUrl    String?                @map("label_download_url")
+  estimatedDeliveryAt DateTime?              @map("estimated_delivery_at")
+  shippedAt           DateTime?              @map("shipped_at")
+  deliveredAt         DateTime?              @map("delivered_at")
+  voidedAt            DateTime?              @map("voided_at")
+  voidResponse        Json?                  @map("void_response")
+  errorMessage        String?                @map("error_message")
+  events              ShippingEvent[]
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+
+  @@index([orderId, createdAt])
+  @@index([trackingNumber])
+  @@index([status, updatedAt])
+  @@map("shipping_shipments")
+}
+
+model ShippingEvent {
+  id               String            @id @default(cuid())
+  providerEventKey String            @unique @map("provider_event_key")
+  shipmentId       String?           @map("shipment_id")
+  shipment         ShippingShipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  eventType        String            @map("event_type")
+  trackingNumber   String?           @map("tracking_number")
+  statusCode       String?           @map("status_code")
+  statusDetail     String?           @map("status_detail")
+  occurredAt       DateTime?         @map("occurred_at")
+  processedAt      DateTime?         @map("processed_at")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  @@index([shipmentId, createdAt])
+  @@map("shipping_events")
 }
 
 model OrderItem {

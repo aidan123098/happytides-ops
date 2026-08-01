@@ -13,7 +13,10 @@ export type AuditInput = {
   request?: Request;
 };
 
-const sensitiveKeys = new Set(["password", "passwordHash", "token", "tokenHash", "secret", "secretHash", "accessToken", "webhookSignatureKey"]);
+const sensitiveKeys = new Set([
+  "password", "passwordHash", "token", "tokenHash", "secret", "secretHash", "accessToken", "webhookSignatureKey",
+  "shippingAddress", "shipToLine1", "shipToLine2", "shipToCity", "shipToRegion", "shipToPostalCode", "shipToPhone", "shipToEmail"
+]);
 
 function redact(value: unknown): Prisma.InputJsonValue | undefined {
   if (value === undefined) return undefined;

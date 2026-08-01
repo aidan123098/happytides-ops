@@ -82,6 +82,33 @@ export type Customer = {
   tags: string[];
   source: "walk-in" | "referral" | "event" | "Instagram" | "website" | "other";
   status: "new" | "returning" | "VIP" | "inactive";
+  shippingAddress?: ShippingAddress;
+};
+
+export type ShippingAddress = {
+  recipientName: string;
+  company?: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  region: string;
+  postalCode: string;
+  country: "US";
+  phone?: string;
+  email?: string;
+  residential: boolean;
+};
+
+export type ShippingLabelSummary = {
+  id: string;
+  status: "draft" | "purchasing" | "completed" | "in_transit" | "delivered" | "exception" | "void_pending" | "voided" | "error" | "reconciling";
+  carrierCode?: string;
+  serviceName?: string;
+  trackingNumber?: string;
+  trackingUrl?: string;
+  trackingStatus: string;
+  postageCostCents?: number;
+  createdAt: string;
 };
 
 export type OrderStage = "unfulfilled" | "paid" | "packed" | "shipped" | "delivered";
@@ -117,8 +144,40 @@ export type Order = {
   paymentStatus: "paid" | "pending" | "refunded" | "canceled";
   fulfillmentStatus: "unfulfilled" | "packed" | "shipped" | "delivered" | "fulfilled" | "canceled";
   status: OrderStage;
+  deliveryMethod: "ship" | "pickup";
+  shippingAddress?: ShippingAddress;
+  shippingLabel?: ShippingLabelSummary;
   createdAt: string;
   notes?: string;
+};
+
+export type ShippingConfig = {
+  enabled: boolean;
+  configured: boolean;
+  apiConnected: boolean;
+  webhookConfigured: boolean;
+  warehouseId?: string;
+  enabledCarrierIds: string[];
+  defaultPackageCode: string;
+  defaultWeightOz?: number;
+  defaultLengthIn?: number;
+  defaultWidthIn?: number;
+  defaultHeightIn?: number;
+  labelFormat: "pdf";
+  labelLayout: "4x6";
+};
+
+export type ShippingRate = {
+  id: string;
+  carrierId: string;
+  carrierCode: string;
+  carrierName: string;
+  serviceCode: string;
+  serviceName: string;
+  amountCents: number;
+  currency: string;
+  deliveryDays?: number;
+  estimatedDeliveryAt?: string;
 };
 
 export type RevenuePoint = {

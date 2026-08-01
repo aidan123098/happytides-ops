@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, ReceiptText, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, MapPin, Plus, ReceiptText, Trash2 } from "lucide-react";
 import Link from "next/link";
-import type { Affiliate, Customer, InventoryBatch, PaymentRecipient, Product } from "@/types/domain";
+import type { Affiliate, Customer, InventoryBatch, PaymentRecipient, Product, ShippingAddress } from "@/types/domain";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,8 @@ import { productOptionLabel } from "@/lib/product-labels";
 import { paymentRecipientLabels, paymentRecipients } from "@/lib/payment-recipients";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency } from "@/lib/utils";
+import { isShippingAddressComplete } from "@/lib/shipping-policy";
+import { emptyShippingAddress, ShippingAddressFields } from "@/components/shipping-address-fields";
 
 type ManualOrderFormProps = {
   products: Product[];
@@ -93,6 +95,9 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   const [addingCustomer, setAddingCustomer] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>("Zelle");
   const [paidTo, setPaidTo] = useState<PaymentRecipient | "">("");
+  const [deliveryMethod, setDeliveryMethod] = useState<"ship" | "pickup">("ship");
+  const [shippingAddress, setShippingAddress] = useState<ShippingAddress>(emptyShippingAddress);
+  const [saveShippingAddress, setSaveShippingAddress] = useState(true);
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<LineItem[]>([newLineItem()]);
   const [status, setStatus] = useState<{ tone: "green" | "amber" | "red"; message: string } | null>(null);
@@ -156,7 +161,20 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
     return (quantityByBatchId.get(item.batch.id) ?? 0) > item.batch.quantityOnHand - item.batch.quantityReserved;
   });
   const invalidItem = enrichedItems.find((item) => !item.product || !item.batch || item.quantity < 1 || item.unitPriceCents <= 0);
-  const orderReady = Boolean(customerId) && Boolean(paidTo) && !addingCustomer && !invalidItem && overAllocatedItems.length === 0 && subtotalCents > 0;
+  const addressReady = deliveryMethod === "pickup" || isShippingAddressComplete(shippingAddress);
+  const orderReady = Boolean(customerId) && Boolean(paidTo) && !addingCustomer && addressReady && !invalidItem && overAllocatedItems.length === 0 && subtotalCents > 0;
+
+  function selectCustomer(id: string) {
+    setCustomerId(id);
+    const customer = customers.find((candidate) => candidate.id === id);
+    if (!customer) return;
+    setShippingAddress(customer.shippingAddress ?? {
+      ...emptyShippingAddress,
+      recipientName: `${customer.firstName} ${customer.lastName}`.trim(),
+      phone: customer.phone === "N/A" ? "" : customer.phone,
+      email: customer.email === "N/A" ? "" : customer.email
+    });
+  }
 
   function updateProduct(id: string, productId: string) {
     const product = products.find((candidate) => candidate.id === productId);
@@ -220,7 +238,13 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
       }
 
       setCustomers((current) => [payload.customer, ...current]);
-      setCustomerId(payload.customer.id);
+      selectCustomer(payload.customer.id);
+      setShippingAddress((current) => ({
+        ...current,
+        recipientName: `${payload.customer.firstName} ${payload.customer.lastName}`.trim(),
+        phone: payload.customer.phone === "N/A" ? "" : payload.customer.phone,
+        email: payload.customer.email === "N/A" ? "" : payload.customer.email
+      }));
       setCustomerForm(emptyCustomerForm);
       setAddingCustomer(false);
       setStatus({ tone: "green", message: `${payload.customer.firstName} ${payload.customer.lastName} added to the customer list.` });
@@ -246,6 +270,11 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
       return;
     }
 
+    if (deliveryMethod === "ship" && !isShippingAddressComplete(shippingAddress)) {
+      setStatus({ tone: "red", message: "Enter the recipient, street, city, two-letter state, and ZIP before recording a shipped order." });
+      return;
+    }
+
     if (overAllocatedItems.length > 0) {
       const item = overAllocatedItems[0];
       setStatus({ tone: "red", message: `${item.product?.name ?? "Selected product"} only has ${Math.max((item.batch?.quantityOnHand ?? 0) - (item.batch?.quantityReserved ?? 0), 0)} units available.` });
@@ -265,6 +294,9 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
           paymentMethod,
           paidTo: paidTo || undefined,
           status: "unfulfilled",
+          deliveryMethod,
+          shippingAddress: deliveryMethod === "ship" ? shippingAddress : undefined,
+          saveShippingAddress: deliveryMethod === "ship" && saveShippingAddress,
           items: enrichedItems.map((item) => ({
             productId: item.productId,
             inventoryBatchId: item.batchId,
@@ -405,7 +437,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                   }
 
                   setAddingCustomer(false);
-                  setCustomerId(event.target.value);
+                  selectCustomer(event.target.value);
                 }}
               >
                 <option value="">Select customer</option>
@@ -457,6 +489,35 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                 </div>
               </div>
             ) : null}
+            <div className="border-t border-slate-200 pt-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                <MapPin size={16} />
+                Fulfillment
+              </div>
+              <div className="mt-3 grid grid-cols-2 rounded-md bg-slate-100 p-1">
+                {(["ship", "pickup"] as const).map((method) => (
+                  <button
+                    key={method}
+                    type="button"
+                    className={`rounded px-3 py-2 text-sm font-semibold transition ${deliveryMethod === method ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
+                    onClick={() => setDeliveryMethod(method)}
+                  >
+                    {method === "ship" ? "Ship" : "Local pickup"}
+                  </button>
+                ))}
+              </div>
+              {deliveryMethod === "ship" ? (
+                <div className="mt-4 space-y-3">
+                  <ShippingAddressFields value={shippingAddress} onChange={setShippingAddress} />
+                  <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <input type="checkbox" checked={saveShippingAddress} onChange={(event) => setSaveShippingAddress(event.target.checked)} />
+                    Save as customer default
+                  </label>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-slate-500">No shipping address or label is required.</p>
+              )}
+            </div>
             <label className="block">
               <span className="text-xs font-semibold uppercase text-slate-500">Affiliate</span>
               <select
@@ -525,7 +586,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
             </Button>
             {!orderReady ? (
               <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
-                Select a customer, who got paid, and complete each line with a SKU, quantity, and available stock before recording.
+                Select a customer, who got paid, complete the order lines, and add a shipping address when Ship is selected.
               </div>
             ) : null}
             {status ? (

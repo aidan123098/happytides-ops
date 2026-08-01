@@ -474,6 +474,7 @@ export const orders: Order[] = [
     paymentStatus: "pending",
     fulfillmentStatus: "unfulfilled",
     status: "unfulfilled",
+    deliveryMethod: "ship",
     createdAt: "N/A",
     notes: "N/A"
   }

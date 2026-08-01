@@ -1,4 +1,5 @@
 import {
+  OrderDeliveryMethod,
   PaymentStatus,
   type Affiliate as PrismaAffiliate,
   type CustomerSource,
@@ -140,7 +141,11 @@ type InventoryMovementWithRelations = Prisma.InventoryMovementGetPayload<{
   include: { batch: { include: { product: true } }; adjustedBy: true };
 }>;
 type CustomerWithRelations = Prisma.CustomerGetPayload<{
-  include: { favoriteProduct: true; tags: { include: { tag: true } } };
+  include: {
+    favoriteProduct: true;
+    tags: { include: { tag: true } };
+    shippingAddresses: true;
+  };
 }>;
 type OrderWithRelations = Prisma.OrderGetPayload<{
   include: {
@@ -150,6 +155,7 @@ type OrderWithRelations = Prisma.OrderGetPayload<{
     affiliate: true;
     items: { include: { product: true; inventoryBatch: true } };
     payments: true;
+    shippingShipments: true;
   };
 }>;
 
@@ -214,6 +220,8 @@ function inventoryMovementToDomain(movement: InventoryMovementWithRelations): In
 }
 
 function customerToDomain(customer: CustomerWithRelations): Customer {
+  const shippingAddress = customer.shippingAddresses[0];
+
   return {
     id: customer.id,
     firstName: customer.firstName,
@@ -232,7 +240,20 @@ function customerToDomain(customer: CustomerWithRelations): Customer {
     notes: customer.notes ?? "N/A",
     tags: customer.tags.map((tag) => tag.tag.name),
     source: sourceMap[customer.source],
-    status: customerStatusMap[customer.status]
+    status: customerStatusMap[customer.status],
+    shippingAddress: shippingAddress ? {
+      recipientName: shippingAddress.recipientName,
+      company: shippingAddress.company ?? undefined,
+      line1: shippingAddress.line1,
+      line2: shippingAddress.line2 ?? undefined,
+      city: shippingAddress.city,
+      region: shippingAddress.region,
+      postalCode: shippingAddress.postalCode,
+      country: "US",
+      phone: shippingAddress.phone ?? undefined,
+      email: shippingAddress.email ?? undefined,
+      residential: shippingAddress.residential
+    } : undefined
   };
 }
 
@@ -256,6 +277,13 @@ function affiliateToDomain(affiliate: PrismaAffiliate): Affiliate {
 
 function orderToDomain(order: OrderWithRelations): Order {
   const payment = order.payments[0];
+  const shippingLabel = order.shippingShipments[0];
+  const hasShippingAddress = order.deliveryMethod === OrderDeliveryMethod.SHIP
+    && order.shipToName
+    && order.shipToLine1
+    && order.shipToCity
+    && order.shipToRegion
+    && order.shipToPostalCode;
 
   return {
     id: order.id,
@@ -286,6 +314,31 @@ function orderToDomain(order: OrderWithRelations): Order {
     paymentStatus: paymentStatusMap[order.paymentStatus] ?? "pending",
     fulfillmentStatus: orderStageMap[order.status] ?? fulfillmentStatusMap[order.fulfillmentStatus] ?? "unfulfilled",
     status: orderStageFromPersistence(order),
+    deliveryMethod: order.deliveryMethod === OrderDeliveryMethod.PICKUP ? "pickup" : "ship",
+    shippingAddress: hasShippingAddress ? {
+      recipientName: order.shipToName!,
+      company: order.shipToCompany ?? undefined,
+      line1: order.shipToLine1!,
+      line2: order.shipToLine2 ?? undefined,
+      city: order.shipToCity!,
+      region: order.shipToRegion!,
+      postalCode: order.shipToPostalCode!,
+      country: "US",
+      phone: order.shipToPhone ?? undefined,
+      email: order.shipToEmail ?? undefined,
+      residential: order.shipToResidential
+    } : undefined,
+    shippingLabel: shippingLabel ? {
+      id: shippingLabel.id,
+      status: shippingLabel.status.toLowerCase() as NonNullable<Order["shippingLabel"]>["status"],
+      carrierCode: shippingLabel.carrierCode ?? undefined,
+      serviceName: shippingLabel.serviceName ?? undefined,
+      trackingNumber: shippingLabel.trackingNumber ?? undefined,
+      trackingUrl: shippingLabel.trackingUrl ?? undefined,
+      trackingStatus: shippingLabel.trackingStatus,
+      postageCostCents: shippingLabel.postageCostCents ?? undefined,
+      createdAt: shippingLabel.createdAt.toISOString()
+    } : undefined,
     createdAt: order.createdAt.toISOString(),
     notes: order.notes ?? undefined
   };
@@ -378,7 +431,12 @@ export async function getCustomers() {
       where: { archivedAt: null },
       include: {
         favoriteProduct: true,
-        tags: { include: { tag: true } }
+        tags: { include: { tag: true } },
+        shippingAddresses: {
+          where: { archivedAt: null, isDefault: true },
+          orderBy: { updatedAt: "desc" },
+          take: 1
+        }
       },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }]
     });
@@ -393,7 +451,12 @@ export async function getCustomerById(id: string) {
     where: { id },
     include: {
       favoriteProduct: true,
-      tags: { include: { tag: true } }
+      tags: { include: { tag: true } },
+      shippingAddresses: {
+        where: { archivedAt: null, isDefault: true },
+        orderBy: { updatedAt: "desc" },
+        take: 1
+      }
     }
   });
 
@@ -428,7 +491,12 @@ export async function getOrders() {
         location: true,
         affiliate: true,
         items: { include: { product: true, inventoryBatch: true } },
-        payments: true
+        payments: true,
+        shippingShipments: {
+          where: { activeKey: { not: null } },
+          orderBy: { createdAt: "desc" },
+          take: 1
+        }
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }]
     });
@@ -447,7 +515,12 @@ export async function getOrderById(id: string) {
       location: true,
       affiliate: true,
       items: { include: { product: true, inventoryBatch: true } },
-      payments: true
+      payments: true,
+      shippingShipments: {
+        where: { activeKey: { not: null } },
+        orderBy: { createdAt: "desc" },
+        take: 1
+      }
     }
   });
 
