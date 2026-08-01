@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME } from "@/lib/auth-constants";
 
-const publicPaths = ["/login", "/api/auth/login", "/api/auth/logout", "/api/square/webhook"];
+const publicPaths = [
+  "/login",
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/square/webhook",
+  "/api/webhooks/shipstation"
+];
 
 function isPublicPath(pathname: string) {
   return publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
