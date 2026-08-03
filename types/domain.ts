@@ -176,6 +176,8 @@ export type ShippingRate = {
   serviceName: string;
   amountCents: number;
   currency: string;
+  purchasable: boolean;
+  purchaseBlockReason?: string;
   deliveryDays?: number;
   estimatedDeliveryAt?: string;
 };

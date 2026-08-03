@@ -16,6 +16,7 @@ import {
   listShipStationCarriers,
   listShipStationWarehouses,
   purchaseShipStationLabel,
+  shipStationRatePurchaseBlockReason,
   ShipStationError,
   testShipStationConnection,
   voidShipStationLabel,
@@ -36,10 +37,37 @@ function stringArray(value: Prisma.JsonValue | null | undefined) {
 
 function ratesFromJson(value: Prisma.JsonValue | null | undefined): ShippingRate[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is ShippingRate => {
-    return typeof entry === "object" && entry !== null && !Array.isArray(entry)
-      && typeof entry.id === "string"
-      && typeof entry.amountCents === "number";
+  return value.flatMap((entry): ShippingRate[] => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+    if (typeof entry.id !== "string"
+      || typeof entry.carrierId !== "string"
+      || typeof entry.carrierCode !== "string"
+      || typeof entry.carrierName !== "string"
+      || typeof entry.serviceCode !== "string"
+      || typeof entry.serviceName !== "string"
+      || typeof entry.amountCents !== "number"
+      || typeof entry.currency !== "string") return [];
+
+    const serviceBlockReason = shipStationRatePurchaseBlockReason(entry.serviceCode);
+    const storedBlockReason = typeof entry.purchaseBlockReason === "string" ? entry.purchaseBlockReason : undefined;
+    const purchasable = !serviceBlockReason && entry.purchasable !== false;
+    const purchaseBlockReason = serviceBlockReason
+      ?? storedBlockReason
+      ?? (!purchasable ? "This shipping rate is unavailable for label purchases." : undefined);
+    return [{
+      id: entry.id,
+      carrierId: entry.carrierId,
+      carrierCode: entry.carrierCode,
+      carrierName: entry.carrierName,
+      serviceCode: entry.serviceCode,
+      serviceName: entry.serviceName,
+      amountCents: entry.amountCents,
+      currency: entry.currency,
+      purchasable,
+      ...(purchaseBlockReason ? { purchaseBlockReason } : {}),
+      ...(typeof entry.deliveryDays === "number" ? { deliveryDays: entry.deliveryDays } : {}),
+      ...(typeof entry.estimatedDeliveryAt === "string" ? { estimatedDeliveryAt: entry.estimatedDeliveryAt } : {})
+    }];
   });
 }
 
@@ -408,11 +436,23 @@ export async function purchaseShippingLabel(input: { shipmentId: string; rateId:
   }
   const rate = ratesFromJson(initial.quotedRates).find((item) => item.id === input.rateId);
   if (!rate) throw new Error("The selected rate is no longer valid. Review rates again.");
+  const purchaseBlockReason = shipStationRatePurchaseBlockReason(rate.serviceCode)
+    ?? (!rate.purchasable ? rate.purchaseBlockReason ?? "This shipping rate is unavailable for label purchases." : undefined);
+  if (purchaseBlockReason) throw new Error(purchaseBlockReason);
 
   try {
     const claimed = await prisma.shippingShipment.updateMany({
       where: { id: initial.id, status: ShippingShipmentStatus.DRAFT, activeKey: null },
-      data: { status: ShippingShipmentStatus.PURCHASING, activeKey: initial.orderId, providerRateId: rate.id, errorMessage: null }
+      data: {
+        status: ShippingShipmentStatus.PURCHASING,
+        activeKey: initial.orderId,
+        providerRateId: rate.id,
+        carrierId: rate.carrierId,
+        carrierCode: rate.carrierCode,
+        serviceCode: rate.serviceCode,
+        serviceName: rate.serviceName,
+        errorMessage: null
+      }
     });
     if (claimed.count !== 1) throw new Error("This label purchase is already in progress.");
   } catch (error) {
@@ -425,7 +465,7 @@ export async function purchaseShippingLabel(input: { shipmentId: string; rateId:
   try {
     let label: ShipStationLabel;
     try {
-      label = await purchaseShipStationLabel(rate.id);
+      label = await purchaseShipStationLabel(rate.id, rate.serviceCode);
     } catch (error) {
       if (!(error instanceof ShipStationError) || !error.ambiguous) throw error;
       const recovered = await findShipStationLabel(initial.externalShipmentId);

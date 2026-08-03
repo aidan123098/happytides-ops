@@ -2,6 +2,7 @@ import type { ShippingAddress, ShippingRate } from "@/types/domain";
 
 const shipStationBaseUrl = "https://api.shipstation.com/v2";
 const requestTimeoutMs = 15_000;
+const upsGroundSaverPurchaseBlockReason = "UPS Ground Saver is unavailable for API label purchases. Choose another UPS service.";
 
 type JsonObject = Record<string, unknown>;
 
@@ -55,6 +56,10 @@ export class ShipStationError extends Error {
     this.retryable = options.retryable ?? false;
     this.ambiguous = options.ambiguous ?? false;
   }
+}
+
+export function shipStationRatePurchaseBlockReason(serviceCode: string) {
+  return serviceCode.trim().toLowerCase() === "ups_ground_saver" ? upsGroundSaverPurchaseBlockReason : undefined;
 }
 
 function objectValue(value: unknown): JsonObject {
@@ -275,15 +280,19 @@ export async function getShipStationRates(input: {
     const amountCents = [rate.shipping_amount, rate.insurance_amount, rate.confirmation_amount, rate.other_amount]
       .reduce<number>((total, amount) => total + moneyCents(amount), 0);
     const deliveryDays = numberValue(rate.delivery_days);
+    const serviceCode = stringValue(rate.service_code) ?? "";
+    const purchaseBlockReason = shipStationRatePurchaseBlockReason(serviceCode);
     return {
       id,
       carrierId: stringValue(rate.carrier_id) ?? "",
       carrierCode: stringValue(rate.carrier_code) ?? "",
       carrierName: stringValue(rate.carrier_friendly_name, rate.carrier_nickname, rate.carrier_code) ?? "Carrier",
-      serviceCode: stringValue(rate.service_code) ?? "",
+      serviceCode,
       serviceName: stringValue(rate.service_type, rate.service_name, rate.service_code) ?? "Service",
       amountCents,
       currency: stringValue(objectValue(rate.shipping_amount).currency, rate.currency) ?? "usd",
+      purchasable: !purchaseBlockReason,
+      ...(purchaseBlockReason ? { purchaseBlockReason } : {}),
       deliveryDays,
       estimatedDeliveryAt: stringValue(rate.estimated_delivery_date)
     };
@@ -326,13 +335,18 @@ function normalizeLabel(payload: unknown): ShipStationLabel {
   };
 }
 
-export async function purchaseShipStationLabel(rateId: string) {
+export async function purchaseShipStationLabel(rateId: string, serviceCode?: string) {
+  const purchaseBlockReason = serviceCode ? shipStationRatePurchaseBlockReason(serviceCode) : undefined;
+  if (purchaseBlockReason) throw new Error(purchaseBlockReason);
+
   const payload = await shipStationRequest<unknown>(`/labels/rates/${encodeURIComponent(rateId)}`, {
     method: "POST",
     body: JSON.stringify({
+      validate_address: "validate_and_clean",
       label_format: "pdf",
       label_layout: "4x6",
-      label_download_type: "url"
+      label_download_type: "url",
+      display_scheme: "label"
     })
   });
   const label = normalizeLabel(payload);

@@ -176,8 +176,11 @@ export function ShippingWorkbench({ initialOrders, initialConfig }: ShippingWork
         return;
       }
       setQuote(payload);
-      setSelectedRateId(payload.rates[0]?.id ?? "");
-      setMessage({ tone: "green", text: `${payload.rates.length} live rate${payload.rates.length === 1 ? "" : "s"} loaded. No postage has been purchased.` });
+      const firstPurchasableRate = payload.rates.find((rate: ShippingRate) => rate.purchasable);
+      setSelectedRateId(firstPurchasableRate?.id ?? "");
+      setMessage(firstPurchasableRate
+        ? { tone: "green", text: `${payload.rates.length} live rate${payload.rates.length === 1 ? "" : "s"} loaded. No postage has been purchased.` }
+        : { tone: "red", text: "Rates loaded, but none are available for label purchase. Check the carrier services and try again." });
     } catch {
       setMessage({ tone: "red", text: "Rates could not be loaded. Try again in a moment." });
     } finally {
@@ -187,6 +190,11 @@ export function ShippingWorkbench({ initialOrders, initialConfig }: ShippingWork
 
   async function buyLabel() {
     if (!quote || !selectedRateId || purchasing) return;
+    const selectedRate = quote.rates.find((rate) => rate.id === selectedRateId);
+    if (!selectedRate?.purchasable) {
+      setMessage({ tone: "red", text: selectedRate?.purchaseBlockReason ?? "Choose an available shipping rate." });
+      return;
+    }
     setPurchasing(true);
     setMessage({ tone: "amber", text: "Purchasing one label from ShipStation..." });
     try {
@@ -349,13 +357,17 @@ export function ShippingWorkbench({ initialOrders, initialConfig }: ShippingWork
                       {quote ? (
                         <div className="mt-3 space-y-2">
                           {quote.rates.map((rate) => (
-                            <label key={rate.id} className={`flex cursor-pointer items-center gap-3 rounded-md border bg-white p-3 ${selectedRateId === rate.id ? "border-slate-950 ring-1 ring-slate-950" : "border-slate-200"}`}>
-                              <input type="radio" name={`rate-${order.id}`} checked={selectedRateId === rate.id} onChange={() => setSelectedRateId(rate.id)} />
-                              <span className="min-w-0 flex-1"><span className="block font-semibold text-slate-950">{rate.carrierName} {rate.serviceName}</span><span className="block text-xs text-slate-500">{deliveryText(rate)}</span></span>
+                            <label key={rate.id} className={`flex items-center gap-3 rounded-md border bg-white p-3 ${rate.purchasable ? "cursor-pointer" : "cursor-not-allowed opacity-60"} ${selectedRateId === rate.id ? "border-slate-950 ring-1 ring-slate-950" : "border-slate-200"}`}>
+                              <input type="radio" name={`rate-${order.id}`} checked={selectedRateId === rate.id} disabled={!rate.purchasable} onChange={() => setSelectedRateId(rate.id)} />
+                              <span className="min-w-0 flex-1">
+                                <span className="block font-semibold text-slate-950">{rate.carrierName} {rate.serviceName}</span>
+                                <span className="block text-xs text-slate-500">{deliveryText(rate)}</span>
+                                {!rate.purchasable ? <span className="mt-1 block text-xs font-medium text-amber-700">{rate.purchaseBlockReason}</span> : null}
+                              </span>
                               <span className="font-semibold text-slate-950">{formatCurrency(rate.amountCents)}</span>
                             </label>
                           ))}
-                          <div className="flex justify-end pt-1"><Button onClick={buyLabel} disabled={!selectedRateId || purchasing}><Printer size={15} />{purchasing ? "Buying..." : "Buy & Print"}</Button></div>
+                          <div className="flex justify-end pt-1"><Button onClick={buyLabel} disabled={!selectedRateId || purchasing || !quote.rates.find((rate) => rate.id === selectedRateId)?.purchasable}><Printer size={15} />{purchasing ? "Buying..." : "Buy & Print"}</Button></div>
                         </div>
                       ) : null}
                     </div>

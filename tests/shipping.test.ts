@@ -28,8 +28,8 @@ test("shipping policy requires complete US address and paid or packed stage", ()
 
 test("rates sort by full cost and carrier tracking only moves orders forward", () => {
   const rates: ShippingRate[] = [
-    { id: "2", carrierId: "c", carrierCode: "ups", carrierName: "UPS", serviceCode: "ground", serviceName: "Ground", amountCents: 900, currency: "usd" },
-    { id: "1", carrierId: "c", carrierCode: "usps", carrierName: "USPS", serviceCode: "ga", serviceName: "Ground Advantage", amountCents: 600, currency: "usd" }
+    { id: "2", carrierId: "c", carrierCode: "ups", carrierName: "UPS", serviceCode: "ground", serviceName: "Ground", amountCents: 900, currency: "usd", purchasable: true },
+    { id: "1", carrierId: "c", carrierCode: "usps", carrierName: "USPS", serviceCode: "ga", serviceName: "Ground Advantage", amountCents: 600, currency: "usd", purchasable: true }
   ];
   assert.deepEqual(sortShippingRates(rates).map((rate) => rate.id), ["1", "2"]);
   assert.equal(trackingOrderStage("in_transit"), "shipped");
@@ -103,7 +103,96 @@ test("ShipStation rate and label responses normalize through mocked fetch", asyn
     assert.equal(requests[0]?.init?.headers instanceof Headers, false);
     assert.equal((requests[0]?.init?.headers as Record<string, string>)["API-Key"], "test-key");
     assert.match(String(requests[0]?.init?.body), /"validate_address":"validate_and_clean"/);
-    assert.match(String(requests[1]?.init?.body), /"label_layout":"4x6"/);
+    assert.equal(new URL(requests[1]!.url).pathname, "/v2/labels/rates/se-rate");
+    assert.equal(requests[1]?.init?.method, "POST");
+    assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
+      validate_address: "validate_and_clean",
+      label_format: "pdf",
+      label_layout: "4x6",
+      label_download_type: "url",
+      display_scheme: "label"
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
+    else process.env.SHIPSTATION_API_KEY = originalKey;
+  }
+});
+
+test("UPS Ground Saver remains visible but cannot reach label purchase", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SHIPSTATION_API_KEY;
+  process.env.SHIPSTATION_API_KEY = "test-key";
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = async (input, init) => {
+    requests.push({ url: String(input), init });
+    return Response.json({
+      shipment_id: "se-shipment",
+      rate_response: {
+        rates: [
+          {
+            rate_id: "se-ground-saver",
+            carrier_id: "se-ups",
+            carrier_code: "ups",
+            carrier_friendly_name: "UPS",
+            service_code: "ups_ground_saver",
+            service_type: "UPS Ground Saver",
+            shipping_amount: { amount: 5.69, currency: "usd" }
+          },
+          {
+            rate_id: "se-ground",
+            carrier_id: "se-ups",
+            carrier_code: "ups",
+            carrier_friendly_name: "UPS",
+            service_code: "ups_ground",
+            service_type: "UPS Ground",
+            shipping_amount: { amount: 7.1, currency: "usd" }
+          }
+        ]
+      }
+    });
+  };
+
+  try {
+    const result = await getShipStationRates({
+      externalShipmentId: "HT-test",
+      warehouseId: "se-warehouse",
+      carrierIds: ["se-ups"],
+      address,
+      parcel: { packageCode: "package", weightOz: 3, lengthIn: 10, widthIn: 6, heightIn: 1 }
+    });
+    assert.equal(result.rates[0]?.id, "se-ground-saver");
+    assert.equal(result.rates[0]?.purchasable, false);
+    assert.match(result.rates[0]?.purchaseBlockReason ?? "", /choose another UPS service/i);
+    assert.equal(result.rates[1]?.id, "se-ground");
+    assert.equal(result.rates[1]?.purchasable, true);
+
+    await assert.rejects(
+      () => purchaseShipStationLabel("se-ground-saver", "ups_ground_saver"),
+      /unavailable for API label purchases/i
+    );
+    assert.equal(requests.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
+    else process.env.SHIPSTATION_API_KEY = originalKey;
+  }
+});
+
+test("ShipStation label errors retain the exact rate path and upstream status", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SHIPSTATION_API_KEY;
+  process.env.SHIPSTATION_API_KEY = "test-key";
+  globalThis.fetch = async () => Response.json({ errors: [{ message: "Carrier rejected this service." }] }, { status: 422 });
+
+  try {
+    await assert.rejects(() => purchaseShipStationLabel("se-ground", "ups_ground"), (error: unknown) => {
+      assert.equal(error instanceof ShipStationError, true);
+      assert.equal((error as ShipStationError).status, 422);
+      assert.equal((error as ShipStationError).providerPath, "/v2/labels/rates/se-ground");
+      assert.equal((error as ShipStationError).message, "Carrier rejected this service.");
+      return true;
+    });
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
