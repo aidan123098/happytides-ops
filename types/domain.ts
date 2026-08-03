@@ -136,11 +136,13 @@ export type Order = {
   subtotalCents: number;
   discountCents: number;
   taxCents: number;
+  shippingCents: number;
   totalCents: number;
-  paymentMethod: "Processor" | "Cash" | "Zelle" | "Venmo" | "ACH" | "Crypto" | "Other";
+  paymentMethod: "Processor" | "Shopify" | "Cash" | "Zelle" | "Venmo" | "ACH" | "Crypto" | "Other";
   paidTo?: PaymentRecipient;
   squarePaymentId?: string;
   squareOrderId?: string;
+  shopifyOrderId?: string;
   paymentStatus: "paid" | "pending" | "refunded" | "canceled";
   fulfillmentStatus: "unfulfilled" | "packed" | "shipped" | "delivered" | "fulfilled" | "canceled";
   status: OrderStage;

@@ -11,11 +11,13 @@ type OrderPayload = {
   paymentMethod: Order["paymentMethod"];
   paidTo?: Order["paidTo"];
   squarePaymentId?: string;
+  shopifyOrderId?: string;
   status?: OrderStage;
   fulfillmentStatus?: Exclude<OrderStage, "paid">;
   deliveryMethod: "ship" | "pickup";
   shippingAddress?: ShippingAddress;
   saveShippingAddress?: boolean;
+  shippingCents: number;
   createdAt?: string;
   items: Array<{
     productId: string;
@@ -227,6 +229,7 @@ function buildOrder(payload: OrderPayload, actor: SessionUser, existing?: Order)
   const affiliate = payload.affiliateId ? state.affiliates.find((item) => item.id === payload.affiliateId) : undefined;
   const subtotalCents = payload.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const discountCents = payload.items.reduce((sum, item) => sum + item.discountCents, 0);
+  const shippingCents = payload.deliveryMethod === "ship" ? payload.shippingCents : 0;
 
   const status = payload.status ?? payload.fulfillmentStatus ?? existing?.status ?? "unfulfilled";
   return {
@@ -255,10 +258,12 @@ function buildOrder(payload: OrderPayload, actor: SessionUser, existing?: Order)
     subtotalCents,
     discountCents,
     taxCents: 0,
-    totalCents: subtotalCents - discountCents,
+    shippingCents,
+    totalCents: subtotalCents - discountCents + shippingCents,
     paymentMethod: payload.paymentMethod,
     paidTo: payload.paidTo,
     squarePaymentId: payload.squarePaymentId,
+    shopifyOrderId: payload.paymentMethod === "Shopify" ? payload.shopifyOrderId : undefined,
     paymentStatus: status === "unfulfilled" ? "pending" : "paid",
     fulfillmentStatus: status === "delivered" ? "delivered" : status === "shipped" ? "shipped" : status === "packed" ? "packed" : "unfulfilled",
     status,

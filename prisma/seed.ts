@@ -31,6 +31,7 @@ const customerStatusMap = {
 
 const paymentMethodMap = {
   Processor: PaymentMethod.SQUARE_CARD,
+  Shopify: PaymentMethod.SHOPIFY,
   Cash: PaymentMethod.CASH,
   Zelle: PaymentMethod.ZELLE,
   Venmo: PaymentMethod.VENMO,

@@ -7,6 +7,8 @@ import { transitionInventoryCounts } from "@/lib/inventory-counts";
 import { isPaidStage, isReservedStage, isSoldStage, orderStageFromPersistence, persistenceForOrderStage, type OrderStage } from "@/lib/order-stage";
 import { adjustedInventoryTotal, assertLotCanAllocate } from "@/lib/services/inventory-policy";
 import { shouldAdvanceOrderStage } from "@/lib/shipping-policy";
+import { calculateOrderTotals } from "@/lib/order-totals";
+import { normalizeShopifyOrderId } from "@/lib/shopify-order";
 import type { Customer } from "@/types/domain";
 
 type Tx = Prisma.TransactionClient;
@@ -16,9 +18,10 @@ type OrderPayload = {
   customerName?: string;
   affiliateId?: string;
   locationId?: string;
-  paymentMethod: "Processor" | "Cash" | "Zelle" | "Venmo" | "ACH" | "Crypto" | "Other";
+  paymentMethod: "Processor" | "Shopify" | "Cash" | "Zelle" | "Venmo" | "ACH" | "Crypto" | "Other";
   paidTo?: string;
   squarePaymentId?: string;
+  shopifyOrderId?: string;
   status?: OrderStage;
   fulfillmentStatus?: Exclude<OrderStage, "paid">;
   deliveryMethod: "ship" | "pickup";
@@ -36,6 +39,7 @@ type OrderPayload = {
     residential: boolean;
   };
   saveShippingAddress?: boolean;
+  shippingCents: number;
   createdAt?: string;
   items: Array<{
     productId: string;
@@ -138,6 +142,7 @@ function parsedCreatedAt(value?: string) {
 
 const paymentMethodMap: Record<OrderPayload["paymentMethod"], PaymentMethod> = {
   Processor: PaymentMethod.SQUARE_CARD,
+  Shopify: PaymentMethod.SHOPIFY,
   Cash: PaymentMethod.CASH,
   Zelle: PaymentMethod.ZELLE,
   Venmo: PaymentMethod.VENMO,
@@ -352,9 +357,7 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
 
     await validateInventory(tx, payload.items);
 
-    const subtotalCents = payload.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
-    const discountCents = payload.items.reduce((sum, item) => sum + item.discountCents, 0);
-    const totalCents = subtotalCents - discountCents;
+    const { subtotalCents, discountCents, shippingCents, totalCents } = calculateOrderTotals(payload.items, payload.deliveryMethod, payload.shippingCents);
     const orderNumber = `HT-${Date.now().toString().slice(-6)}`;
     const stage = requestedStage(payload);
     const persistedStage = persistenceForOrderStage(stage);
@@ -367,12 +370,14 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
         subtotalCents,
         discountCents,
         taxCents: 0,
+        shippingCents,
         totalCents,
         paidTo: payload.paidTo,
         paymentStatus: persistedStage.paymentStatus,
         fulfillmentStatus: persistedStage.fulfillmentStatus,
         status: persistedStage.status,
         orderSource: payload.locationId ?? "Manual entry",
+        shopifyOrderId: payload.paymentMethod === "Shopify" ? normalizeShopifyOrderId(payload.shopifyOrderId) : null,
         ...orderShippingData(payload),
         affiliateId: payload.affiliateId,
         notes: payload.notes,
@@ -433,9 +438,7 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
     await validateInventory(tx, payload.items, inventoryAllowance(existing.items, previousStage));
     const changedBatchIds = await transitionOrderInventory(tx, existing.items, previousStage, payload.items, stage, actor, existing.orderNumber);
 
-    const subtotalCents = payload.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
-    const discountCents = payload.items.reduce((sum, item) => sum + item.discountCents, 0);
-    const totalCents = subtotalCents - discountCents;
+    const { subtotalCents, discountCents, shippingCents, totalCents } = calculateOrderTotals(payload.items, payload.deliveryMethod, payload.shippingCents);
     const persistedStage = persistenceForOrderStage(stage);
     const createdAt = parsedCreatedAt(payload.createdAt);
 
@@ -446,9 +449,11 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
         customerId: payload.customerId,
         subtotalCents,
         discountCents,
+        shippingCents,
         totalCents,
         paidTo: payload.paidTo,
         orderSource: payload.locationId ?? existing.orderSource,
+        shopifyOrderId: payload.paymentMethod === "Shopify" ? normalizeShopifyOrderId(payload.shopifyOrderId) : null,
         ...orderShippingData(payload),
         paymentStatus: persistedStage.paymentStatus,
         fulfillmentStatus: persistedStage.fulfillmentStatus,

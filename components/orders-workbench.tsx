@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
-import { Edit3, Filter, PackageCheck, Save, Trash2, X } from "lucide-react";
+import { Edit3, ExternalLink, Filter, PackageCheck, Save, Trash2, X } from "lucide-react";
 import type { InventoryBatch, Order, PaymentRecipient, Product, ShippingAddress } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,8 @@ import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency, formatCurrencyOrNA, formatNumber, formatNumberOrNA } from "@/lib/utils";
 import { emptyShippingAddress, ShippingAddressFields } from "@/components/shipping-address-fields";
 import { isShippingAddressComplete } from "@/lib/shipping-policy";
+import { calculateOrderTotals } from "@/lib/order-totals";
+import { normalizeShopifyOrderId, shopifyAdminOrderUrl } from "@/lib/shopify-order";
 
 type OrdersWorkbenchProps = {
   initialOrders: Order[];
@@ -30,7 +32,7 @@ type EditableLine = {
   unitPrice: string;
 };
 
-const paymentMethods = ["Processor", "Zelle", "Venmo", "ACH", "Crypto", "Cash", "Other"] as const;
+const paymentMethods = ["Processor", "Shopify", "Zelle", "Venmo", "ACH", "Crypto", "Cash", "Other"] as const;
 const orderStatuses: Order["status"][] = ["unfulfilled", "paid", "packed", "shipped", "delivered"];
 
 function centsToDollars(cents: number) {
@@ -76,6 +78,15 @@ function visibleOrders(orders: Order[]) {
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() || right.id.localeCompare(left.id));
 }
 
+function PaymentMethodDisplay({ order, badge = false }: { order: Order; badge?: boolean }) {
+  const content = badge
+    ? <Badge tone={order.paymentStatus === "paid" ? "green" : "amber"}>{order.paymentMethod === "Shopify" ? <span className="inline-flex items-center gap-1"><span>Shopify</span><ExternalLink size={11} /></span> : order.paymentMethod}</Badge>
+    : <span className="font-semibold text-slate-950">{order.paymentMethod}</span>;
+  const href = order.paymentMethod === "Shopify" ? shopifyAdminOrderUrl(order.shopifyOrderId) : undefined;
+
+  return href ? <a href={href} target="_blank" rel="noreferrer" className="inline-flex rounded-full outline-none focus:ring-2 focus:ring-blue-300" title={`Open ${order.orderNumber} in Shopify Admin`}>{content}</a> : content;
+}
+
 export function OrdersWorkbench({ initialOrders, initialProducts, initialInventoryBatches }: OrdersWorkbenchProps) {
   const [orders, setOrders] = useState<Order[]>(visibleOrders(initialOrders));
   const [inventoryBatches, setInventoryBatches] = useState(initialInventoryBatches);
@@ -86,11 +97,13 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editLines, setEditLines] = useState<EditableLine[]>([]);
   const [editPaymentMethod, setEditPaymentMethod] = useState<(typeof paymentMethods)[number]>("Zelle");
+  const [editShopifyOrderReference, setEditShopifyOrderReference] = useState("");
   const [editPaidTo, setEditPaidTo] = useState<PaymentRecipient | "">("");
   const [editStatus, setEditStatus] = useState<Order["status"]>("unfulfilled");
   const [editCreatedAt, setEditCreatedAt] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editDeliveryMethod, setEditDeliveryMethod] = useState<"ship" | "pickup">("ship");
+  const [editShippingCharge, setEditShippingCharge] = useState("0.00");
   const [editShippingAddress, setEditShippingAddress] = useState<ShippingAddress>(emptyShippingAddress);
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
   const [removingOrderIds, setRemovingOrderIds] = useState<string[]>([]);
@@ -179,7 +192,8 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
 
     return issues;
   }, [batchesById, editQuantityByBatch, originalQuantityByBatch]);
-  const canSaveEdit = allocationIssues.length === 0 && (editDeliveryMethod === "pickup" || isShippingAddressComplete(editShippingAddress));
+  const editShopifyReady = editPaymentMethod !== "Shopify" || Boolean(normalizeShopifyOrderId(editShopifyOrderReference));
+  const canSaveEdit = allocationIssues.length === 0 && editShopifyReady && (editDeliveryMethod === "pickup" || isShippingAddressComplete(editShippingAddress));
 
   const filteredOrders = orders.filter((order) => {
     const haystack = [
@@ -223,11 +237,13 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     setEditingOrderId(order.id);
     setEditLines(hydrateLine(order));
     setEditPaymentMethod(paymentMethods.includes(order.paymentMethod as (typeof paymentMethods)[number]) ? (order.paymentMethod as (typeof paymentMethods)[number]) : "Other");
+    setEditShopifyOrderReference(order.shopifyOrderId ?? "");
     setEditPaidTo(order.paidTo ?? "");
     setEditStatus(order.status);
     setEditCreatedAt(dateInputValue(order.createdAt));
     setEditNotes(order.notes ?? "");
     setEditDeliveryMethod(order.deliveryMethod);
+    setEditShippingCharge(centsToDollars(order.shippingCents));
     setEditShippingAddress(order.shippingAddress ?? { ...emptyShippingAddress, recipientName: order.customerName });
   }
 
@@ -276,12 +292,14 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           customerId: orders.find((order) => order.id === orderId)?.customerId ?? "cust_placeholder",
           affiliateId: orders.find((order) => order.id === orderId)?.affiliateId,
           paymentMethod: editPaymentMethod,
+          shopifyOrderId: editPaymentMethod === "Shopify" ? editShopifyOrderReference : undefined,
           paidTo: editPaidTo || undefined,
           status: editStatus,
           createdAt: editCreatedAt,
           deliveryMethod: editDeliveryMethod,
           shippingAddress: editDeliveryMethod === "ship" ? editShippingAddress : undefined,
           saveShippingAddress: false,
+          shippingCents: editDeliveryMethod === "ship" ? Math.max(dollarsToCents(editShippingCharge), 0) : 0,
           items: editLines.map((line) => ({
             productId: line.productId,
             inventoryBatchId: line.inventoryBatchId,
@@ -415,7 +433,11 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
           </label>
           <label>
             <span className="text-xs font-semibold uppercase text-slate-500">Payment</span>
-            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editPaymentMethod} onChange={(event) => setEditPaymentMethod(event.target.value as (typeof paymentMethods)[number])}>
+            <select className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30" value={editPaymentMethod} onChange={(event) => {
+              const method = event.target.value as (typeof paymentMethods)[number];
+              setEditPaymentMethod(method);
+              if (method !== "Shopify") setEditShopifyOrderReference("");
+            }}>
               {paymentMethods.map((method) => (
                 <option key={method} value={method}>{method}</option>
               ))}
@@ -443,6 +465,12 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             <Input className="mt-1" value={editNotes} onChange={(event) => setEditNotes(event.target.value)} />
           </label>
         </div>
+        {editPaymentMethod === "Shopify" ? (
+          <label className="block">
+            <span className="text-xs font-semibold uppercase text-slate-500">Shopify admin order ID</span>
+            <Input className="mt-1" value={editShopifyOrderReference} onChange={(event) => setEditShopifyOrderReference(event.target.value)} placeholder="Numeric ID, Shopify GID, or Admin order URL" />
+          </label>
+        ) : null}
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -451,15 +479,22 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             </div>
             <div className="grid grid-cols-2 rounded-md bg-slate-200/70 p-1">
               {(["ship", "pickup"] as const).map((method) => (
-                <button key={method} type="button" disabled={addressLocked || savingThisOrder} className={`rounded px-3 py-1.5 text-xs font-semibold ${editDeliveryMethod === method ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => setEditDeliveryMethod(method)}>
+                <button key={method} type="button" disabled={addressLocked || savingThisOrder} className={`rounded px-3 py-1.5 text-xs font-semibold ${editDeliveryMethod === method ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => {
+                  setEditDeliveryMethod(method);
+                  if (method === "pickup") setEditShippingCharge("0.00");
+                }}>
                   {method === "ship" ? "Ship" : "Local pickup"}
                 </button>
               ))}
             </div>
           </div>
           {editDeliveryMethod === "ship" ? (
-            <div className="mt-3">
+            <div className="mt-3 space-y-3">
               <ShippingAddressFields value={editShippingAddress} onChange={setEditShippingAddress} disabled={addressLocked || savingThisOrder} />
+              <label className="block">
+                <span className="text-xs font-semibold uppercase text-slate-500">Shipping charge</span>
+                <Input className="mt-1 bg-white" inputMode="decimal" value={editShippingCharge} onChange={(event) => setEditShippingCharge(event.target.value)} placeholder="0.00" disabled={savingThisOrder} />
+              </label>
             </div>
           ) : null}
         </div>
@@ -524,6 +559,16 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
             {allocationIssues[0]}
           </div>
         ) : null}
+        {(() => {
+          const totals = calculateOrderTotals(editLines.map((line) => ({ unitPriceCents: dollarsToCents(line.unitPrice), quantity: line.quantity, discountCents: 0 })), editDeliveryMethod, dollarsToCents(editShippingCharge));
+          return (
+            <div className="grid grid-cols-3 gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+              <div><div className="text-xs text-slate-500">Items</div><div className="font-semibold text-slate-950">{formatCurrency(totals.subtotalCents)}</div></div>
+              <div><div className="text-xs text-slate-500">Shipping</div><div className="font-semibold text-slate-950">{formatCurrency(totals.shippingCents)}</div></div>
+              <div><div className="text-xs text-slate-500">Total</div><div className="font-semibold text-slate-950">{formatCurrency(totals.totalCents)}</div></div>
+            </div>
+          );
+        })()}
         <div className="flex flex-wrap justify-between gap-2">
           <Button variant="secondary" onClick={() => setEditLines((current) => [...current, makeLine()])} disabled={savingThisOrder}>
             <Filter size={15} />
@@ -632,10 +677,11 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                 <div className="rounded-md bg-slate-50 p-2">
                   <div className="text-xs text-slate-500">Total</div>
                   <div className="font-semibold text-slate-950">{formatCurrencyOrNA(order.totalCents)}</div>
+                  {order.shippingCents > 0 ? <div className="mt-0.5 text-xs text-slate-500">Includes {formatCurrency(order.shippingCents)} shipping</div> : null}
                 </div>
                 <div className="rounded-md bg-slate-50 p-2">
                   <div className="text-xs text-slate-500">Payment</div>
-                  <div className="font-semibold text-slate-950">{order.paymentMethod}</div>
+                  <div><PaymentMethodDisplay order={order} /></div>
                 </div>
                 <div className="rounded-md bg-slate-50 p-2">
                   <div className="text-xs text-slate-500">Status</div>
@@ -696,8 +742,11 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                 </Td>
                 <Td>{order.customerName}</Td>
                 <Td>{order.items.map((item) => `${formatNumberOrNA(item.quantity)}x ${item.productName}`).join(", ")}</Td>
-                <Td><Badge tone={order.paymentStatus === "paid" ? "green" : "amber"}>{order.paymentMethod}</Badge></Td>
-                <Td className="font-medium text-slate-950">{formatCurrencyOrNA(order.totalCents)}</Td>
+                <Td><PaymentMethodDisplay order={order} badge /></Td>
+                <Td className="font-medium text-slate-950">
+                  <div>{formatCurrencyOrNA(order.totalCents)}</div>
+                  {order.shippingCents > 0 ? <div className="mt-1 whitespace-normal text-xs font-normal text-slate-500">Includes {formatCurrency(order.shippingCents)} shipping</div> : null}
+                </Td>
                 <Td>{statusControl(order)}</Td>
                 <Td>{displayDate(order.createdAt)}</Td>
                 <Td>

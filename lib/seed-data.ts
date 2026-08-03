@@ -466,6 +466,7 @@ export const orders: Order[] = [
     subtotalCents: 0,
     discountCents: 0,
     taxCents: 0,
+    shippingCents: 0,
     totalCents: 0,
     paymentMethod: "Other",
     paidTo: undefined,

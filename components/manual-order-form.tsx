@@ -15,6 +15,7 @@ import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency } from "@/lib/utils";
 import { isShippingAddressComplete } from "@/lib/shipping-policy";
 import { emptyShippingAddress, ShippingAddressFields } from "@/components/shipping-address-fields";
+import { normalizeShopifyOrderId } from "@/lib/shopify-order";
 
 type ManualOrderFormProps = {
   products: Product[];
@@ -34,6 +35,7 @@ type LineItem = {
 
 const paymentMethods = [
   "Processor",
+  "Shopify",
   "Zelle",
   "Venmo",
   "ACH",
@@ -94,8 +96,10 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   const [customerForm, setCustomerForm] = useState<CustomerForm>(emptyCustomerForm);
   const [addingCustomer, setAddingCustomer] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>("Zelle");
+  const [shopifyOrderReference, setShopifyOrderReference] = useState("");
   const [paidTo, setPaidTo] = useState<PaymentRecipient | "">("");
   const [deliveryMethod, setDeliveryMethod] = useState<"ship" | "pickup">("ship");
+  const [shippingCharge, setShippingCharge] = useState("0.00");
   const [shippingAddress, setShippingAddress] = useState<ShippingAddress>(emptyShippingAddress);
   const [saveShippingAddress, setSaveShippingAddress] = useState(true);
   const [notes, setNotes] = useState("");
@@ -151,6 +155,8 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   });
 
   const subtotalCents = enrichedItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  const shippingCents = deliveryMethod === "ship" ? Math.max(dollarsToCents(shippingCharge), 0) : 0;
+  const totalCents = subtotalCents + shippingCents;
   const quantityByBatchId = enrichedItems.reduce((accumulator, item) => {
     if (!item.batch?.id) return accumulator;
     accumulator.set(item.batch.id, (accumulator.get(item.batch.id) ?? 0) + item.quantity);
@@ -162,7 +168,8 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   });
   const invalidItem = enrichedItems.find((item) => !item.product || !item.batch || item.quantity < 1 || item.unitPriceCents <= 0);
   const addressReady = deliveryMethod === "pickup" || isShippingAddressComplete(shippingAddress);
-  const orderReady = Boolean(customerId) && Boolean(paidTo) && !addingCustomer && addressReady && !invalidItem && overAllocatedItems.length === 0 && subtotalCents > 0;
+  const shopifyReady = paymentMethod !== "Shopify" || Boolean(normalizeShopifyOrderId(shopifyOrderReference));
+  const orderReady = Boolean(customerId) && Boolean(paidTo) && !addingCustomer && addressReady && shopifyReady && !invalidItem && overAllocatedItems.length === 0 && subtotalCents > 0;
 
   function selectCustomer(id: string) {
     setCustomerId(id);
@@ -292,11 +299,13 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
           customerId,
           affiliateId: affiliateId || undefined,
           paymentMethod,
+          shopifyOrderId: paymentMethod === "Shopify" ? shopifyOrderReference : undefined,
           paidTo: paidTo || undefined,
           status: "unfulfilled",
           deliveryMethod,
           shippingAddress: deliveryMethod === "ship" ? shippingAddress : undefined,
           saveShippingAddress: deliveryMethod === "ship" && saveShippingAddress,
+          shippingCents,
           items: enrichedItems.map((item) => ({
             productId: item.productId,
             inventoryBatchId: item.batchId,
@@ -345,7 +354,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
         </div>
         <div className="rounded-lg border border-slate-200/80 bg-white/90 px-4 py-3 text-sm shadow-panel">
           <div className="text-xs font-semibold uppercase text-slate-500">Order total</div>
-          <div className="mt-1 text-2xl font-semibold text-slate-950">{formatCurrency(subtotalCents)}</div>
+          <div className="mt-1 text-2xl font-semibold text-slate-950">{formatCurrency(totalCents)}</div>
         </div>
       </section>
 
@@ -421,7 +430,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
           <CardHeader>
             <div>
               <CardTitle>Payment</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Record how the in-person order was paid.</p>
+              <p className="mt-1 text-sm text-slate-500">Record how the order was paid.</p>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -500,7 +509,10 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                     key={method}
                     type="button"
                     className={`rounded px-3 py-2 text-sm font-semibold transition ${deliveryMethod === method ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
-                    onClick={() => setDeliveryMethod(method)}
+                    onClick={() => {
+                      setDeliveryMethod(method);
+                      if (method === "pickup") setShippingCharge("0.00");
+                    }}
                   >
                     {method === "ship" ? "Ship" : "Local pickup"}
                   </button>
@@ -509,6 +521,10 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
               {deliveryMethod === "ship" ? (
                 <div className="mt-4 space-y-3">
                   <ShippingAddressFields value={shippingAddress} onChange={setShippingAddress} />
+                  <label className="block">
+                    <span className="text-xs font-semibold uppercase text-slate-500">Shipping charge</span>
+                    <Input className="mt-1 bg-white" inputMode="decimal" value={shippingCharge} onChange={(event) => setShippingCharge(event.target.value)} placeholder="0.00" />
+                  </label>
                   <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
                     <input type="checkbox" checked={saveShippingAddress} onChange={(event) => setSaveShippingAddress(event.target.checked)} />
                     Save as customer default
@@ -538,7 +554,11 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
               <select
                 className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-ring/30"
                 value={paymentMethod}
-                onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentMethods)[number])}
+                onChange={(event) => {
+                  const method = event.target.value as (typeof paymentMethods)[number];
+                  setPaymentMethod(method);
+                  if (method !== "Shopify") setShopifyOrderReference("");
+                }}
               >
                 {paymentMethods.map((method) => (
                   <option key={method} value={method}>
@@ -547,6 +567,13 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
                 ))}
               </select>
             </label>
+            {paymentMethod === "Shopify" ? (
+              <label className="block">
+                <span className="text-xs font-semibold uppercase text-slate-500">Shopify admin order ID</span>
+                <Input className="mt-1" value={shopifyOrderReference} onChange={(event) => setShopifyOrderReference(event.target.value)} placeholder="7093822324971 or Shopify order URL" />
+                <span className="mt-1 block text-xs text-slate-500">Paste the numeric ID, Shopify GID, or full Admin order URL.</span>
+              </label>
+            ) : null}
             <label className="block">
               <span className="text-xs font-semibold uppercase text-slate-500">Who got paid</span>
               <select
@@ -572,12 +599,16 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
               />
             </label>
             <div className="rounded-lg bg-slate-950 p-4 text-white">
+              <div className="mb-3 space-y-1 border-b border-slate-700 pb-3 text-sm text-slate-300">
+                <div className="flex items-center justify-between gap-3"><span>Items</span><span>{formatCurrency(subtotalCents)}</span></div>
+                {deliveryMethod === "ship" ? <div className="flex items-center justify-between gap-3"><span>Shipping</span><span>{formatCurrency(shippingCents)}</span></div> : null}
+              </div>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-slate-300">
                   <ReceiptText size={16} />
                   Total due
                 </div>
-                <div className="text-2xl font-semibold">{formatCurrency(subtotalCents)}</div>
+                <div className="text-2xl font-semibold">{formatCurrency(totalCents)}</div>
               </div>
             </div>
             <Button type="button" className="h-10 w-full" onClick={submitOrder} disabled={submitting || !orderReady}>

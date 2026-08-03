@@ -92,6 +92,7 @@ enum InventoryMovementType {
 
 enum PaymentMethod {
   SQUARE_CARD
+  SHOPIFY
   CASH
   ACH
   WIRE
@@ -762,6 +763,7 @@ model Order {
   subtotalCents     Int                 @map("subtotal_cents")
   discountCents     Int                 @default(0) @map("discount_cents")
   taxCents          Int                 @default(0) @map("tax_cents")
+  shippingCents     Int                 @default(0) @map("shipping_cents")
   totalCents        Int                 @map("total_cents")
   paymentStatus     PaymentStatus       @default(PENDING) @map("payment_status")
   fulfillmentStatus FulfillmentStatus   @default(UNFULFILLED) @map("fulfillment_status")
@@ -785,6 +787,7 @@ model Order {
   affiliateId       String?             @map("affiliate_id")
   affiliate         Affiliate?          @relation(fields: [affiliateId], references: [id])
   squareOrderId     String?             @unique @map("square_order_id")
+  shopifyOrderId    String?             @unique @map("shopify_order_id")
   notes             String?
   canceledAt        DateTime?           @map("canceled_at")
   refundedAt        DateTime?           @map("refunded_at")

@@ -89,6 +89,7 @@ const inventoryStatusMap: Partial<Record<InventoryStatus, InventoryBatch["status
 
 const paymentMethodMap: Record<PaymentMethod, Order["paymentMethod"]> = {
   SQUARE_CARD: "Processor",
+  SHOPIFY: "Shopify",
   CASH: "Cash",
   ACH: "ACH",
   WIRE: "ACH",
@@ -306,11 +307,13 @@ function orderToDomain(order: OrderWithRelations): Order {
     subtotalCents: order.subtotalCents,
     discountCents: order.discountCents,
     taxCents: order.taxCents,
+    shippingCents: order.shippingCents,
     totalCents: order.totalCents,
     paymentMethod: payment ? paymentMethodMap[payment.method] : "Other",
     paidTo: (order.paidTo as Order["paidTo"]) ?? undefined,
     squarePaymentId: payment?.squarePaymentId ?? undefined,
     squareOrderId: order.squareOrderId ?? undefined,
+    shopifyOrderId: order.shopifyOrderId ?? undefined,
     paymentStatus: paymentStatusMap[order.paymentStatus] ?? "pending",
     fulfillmentStatus: orderStageMap[order.status] ?? fulfillmentStatusMap[order.fulfillmentStatus] ?? "unfulfilled",
     status: orderStageFromPersistence(order),

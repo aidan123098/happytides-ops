@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeShopifyOrderId } from "@/lib/shopify-order";
 import { paymentRecipients } from "@/lib/payment-recipients";
 
 const orderStatusSchema = z.enum(["unfulfilled", "paid", "packed", "shipped", "delivered"]);
@@ -83,14 +84,16 @@ const orderInputBaseSchema = z.object({
   customerName: z.string().max(160).optional(),
   affiliateId: z.string().min(1).optional(),
   locationId: z.string().optional(),
-  paymentMethod: z.enum(["Processor", "Cash", "Zelle", "Venmo", "ACH", "Crypto", "Other"]),
+  paymentMethod: z.enum(["Processor", "Shopify", "Cash", "Zelle", "Venmo", "ACH", "Crypto", "Other"]),
   paidTo: paidToSchema.optional(),
   squarePaymentId: z.string().optional(),
+  shopifyOrderId: z.string().max(255).optional(),
   status: orderStatusSchema.optional(),
   fulfillmentStatus: z.enum(["unfulfilled", "packed", "shipped", "delivered"]).optional(),
   deliveryMethod: z.enum(["ship", "pickup"]).default("ship"),
   shippingAddress: shippingAddressSchema.optional(),
   saveShippingAddress: z.boolean().default(false),
+  shippingCents: z.number().int().nonnegative().default(0),
   createdAt: z.string().optional(),
   items: z
     .array(
@@ -106,17 +109,23 @@ const orderInputBaseSchema = z.object({
   notes: z.string().max(1000).optional()
 });
 
-function requireShippingAddress(payload: { deliveryMethod: "ship" | "pickup"; shippingAddress?: unknown }, context: z.RefinementCtx) {
+function requireOrderDetails(payload: { deliveryMethod: "ship" | "pickup"; shippingAddress?: unknown; shippingCents: number; paymentMethod: string; shopifyOrderId?: string }, context: z.RefinementCtx) {
   if (payload.deliveryMethod === "ship" && !payload.shippingAddress) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["shippingAddress"], message: "A complete shipping address is required." });
   }
+  if (payload.deliveryMethod === "pickup" && payload.shippingCents !== 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["shippingCents"], message: "Local pickup cannot include a shipping charge." });
+  }
+  if (payload.paymentMethod === "Shopify" && !normalizeShopifyOrderId(payload.shopifyOrderId)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["shopifyOrderId"], message: "Enter a valid Shopify admin order ID, GID, or order URL." });
+  }
 }
 
-export const orderInputSchema = orderInputBaseSchema.superRefine(requireShippingAddress);
+export const orderInputSchema = orderInputBaseSchema.superRefine(requireOrderDetails);
 
 export const orderUpdateSchema = orderInputBaseSchema.extend({
   orderId: z.string().min(1)
-}).superRefine(requireShippingAddress);
+}).superRefine(requireOrderDetails);
 
 export const orderStatusUpdateSchema = z.object({
   status: orderStatusSchema

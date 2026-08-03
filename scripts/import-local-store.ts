@@ -42,6 +42,7 @@ const inventoryStatusMap: Record<InventoryBatch["status"], InventoryStatus> = {
 
 const paymentMethodMap: Record<Order["paymentMethod"], PaymentMethod> = {
   Processor: PaymentMethod.SQUARE_CARD,
+  Shopify: PaymentMethod.SHOPIFY,
   Cash: PaymentMethod.CASH,
   Zelle: PaymentMethod.ZELLE,
   Venmo: PaymentMethod.VENMO,
