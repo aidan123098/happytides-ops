@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import test from "node:test";
-import { canPurchaseShippingLabel, isShippingAddressComplete, shippingRatesUnderLimit, shouldAdvanceOrderStage, sortShippingRates, trackingOrderStage } from "@/lib/shipping-policy";
+import { canPurchaseShippingLabel, isShippingAddressComplete, shippingRateBadges, shippingRatesUnderLimit, shouldAdvanceOrderStage, sortShippingRates, trackingOrderStage } from "@/lib/shipping-policy";
 import { downloadShipStationLabel, getShipStationLabel, getShipStationRates, purchaseShipStationLabel, ShipStationError, voidShipStationLabel } from "@/lib/services/shipstation";
 import { ShipStationWebhookError, verifyShipStationWebhook } from "@/lib/services/shipstation-webhook";
 import { orderInputSchema } from "@/lib/validation";
@@ -58,6 +58,45 @@ test("shipping quotes include only rates strictly under sixteen dollars", () => 
   ];
 
   assert.deepEqual(shippingRatesUnderLimit(rates).map((rate) => rate.id), ["cheapest", "included"]);
+});
+
+test("shipping rate badges identify price ties, speed ties, and standard ground", () => {
+  const baseRate: ShippingRate = {
+    id: "rate",
+    carrierId: "carrier",
+    carrierCode: "ups",
+    carrierName: "UPS",
+    serviceCode: "service",
+    serviceName: "Service",
+    amountCents: 1000,
+    currency: "usd",
+    purchasable: true
+  };
+  const badges = shippingRateBadges([
+    { ...baseRate, id: "saver", serviceCode: "ups_ground_saver", serviceName: "UPS Ground Saver", amountCents: 500, deliveryDays: 5 },
+    { ...baseRate, id: "economy", serviceCode: "fedex_ground_economy", serviceName: "FedEx Ground Economy", amountCents: 500, deliveryDays: 6 },
+    { ...baseRate, id: "standard", serviceCode: "ups_ground", serviceName: "UPS Ground", amountCents: 700, deliveryDays: 4 },
+    { ...baseRate, id: "fast-a", serviceCode: "ups_next_day", serviceName: "UPS Next Day Air", deliveryDays: 1 },
+    { ...baseRate, id: "fast-b", serviceCode: "fedex_overnight", serviceName: "FedEx Overnight", deliveryDays: 1 }
+  ]);
+
+  assert.deepEqual(badges.saver, ["Cheapest"]);
+  assert.deepEqual(badges.economy, ["Cheapest"]);
+  assert.deepEqual(badges.standard, ["Standard"]);
+  assert.deepEqual(badges["fast-a"], ["Fastest"]);
+  assert.deepEqual(badges["fast-b"], ["Fastest"]);
+});
+
+test("shipping rate badges use the earliest delivery date when day counts are unavailable", () => {
+  const rates: ShippingRate[] = [
+    { id: "later", carrierId: "c", carrierCode: "ups", carrierName: "UPS", serviceCode: "later", serviceName: "Later", amountCents: 700, currency: "usd", purchasable: true, estimatedDeliveryAt: "2026-08-06T12:00:00.000Z" },
+    { id: "early-a", carrierId: "c", carrierCode: "ups", carrierName: "UPS", serviceCode: "early-a", serviceName: "Early A", amountCents: 800, currency: "usd", purchasable: true, estimatedDeliveryAt: "2026-08-04T12:00:00.000Z" },
+    { id: "early-b", carrierId: "c", carrierCode: "fedex", carrierName: "FedEx", serviceCode: "early-b", serviceName: "Early B", amountCents: 900, currency: "usd", purchasable: true, estimatedDeliveryAt: "2026-08-04T12:00:00.000Z" }
+  ];
+
+  const badges = shippingRateBadges(rates);
+  assert.deepEqual(badges["early-a"], ["Fastest"]);
+  assert.deepEqual(badges["early-b"], ["Fastest"]);
 });
 
 test("order validation requires an address for ship but not local pickup", () => {

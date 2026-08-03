@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { emptyShippingAddress, ShippingAddressFields } from "@/components/shipping-address-fields";
-import { canPurchaseShippingLabel, isShippingAddressComplete } from "@/lib/shipping-policy";
+import { canPurchaseShippingLabel, isShippingAddressComplete, shippingRateBadges } from "@/lib/shipping-policy";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency } from "@/lib/utils";
 import type { Order, ShippingAddress, ShippingConfig, ShippingRate } from "@/types/domain";
@@ -119,6 +119,7 @@ export function ShippingWorkbench({ initialOrders, initialConfig }: ShippingWork
     const haystack = `${order.orderNumber} ${order.customerName} ${order.shippingLabel?.trackingNumber ?? ""} ${order.items.map((item) => item.productName).join(" ")}`.toLowerCase();
     return matchesFilter && (!search || haystack.includes(search.toLowerCase()));
   }), [filter, orders, search]);
+  const rateBadges = useMemo(() => shippingRateBadges(quote?.rates ?? []), [quote]);
 
   function startAddress(order: Order) {
     setAddressOrderId(order.id);
@@ -307,27 +308,27 @@ export function ShippingWorkbench({ initialOrders, initialConfig }: ShippingWork
                       <div className="mt-1 truncate text-xs text-slate-500">{order.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")}</div>
                       {label?.trackingNumber ? <div className="mt-1 font-mono text-xs text-slate-600">{label.trackingNumber}</div> : null}
                     </div>
-                    <div className="flex flex-wrap gap-2 xl:justify-end">
+                    <div className="grid grid-cols-2 gap-2 xl:flex xl:flex-wrap xl:justify-end">
                       {!order.shippingAddress && !label && order.status !== "shipped" && order.status !== "delivered" ? (
-                        <Button variant="secondary" onClick={() => startAddress(order)}><MapPin size={15} />Add address</Button>
+                        <Button variant="secondary" className="w-full xl:w-auto" onClick={() => startAddress(order)}><MapPin size={15} />Add address</Button>
                       ) : null}
                       {order.shippingAddress && !label && order.status !== "shipped" && order.status !== "delivered" ? (
-                        <Button variant="secondary" onClick={() => startAddress(order)}><MapPin size={15} />Edit address</Button>
+                        <Button variant="secondary" className="w-full xl:w-auto" onClick={() => startAddress(order)}><MapPin size={15} />Edit address</Button>
                       ) : null}
                       {!label ? (
-                        <Button onClick={() => startRates(order)} disabled={!canBuy}><PackageCheck size={15} />Review rates</Button>
+                        <Button className="w-full xl:w-auto" onClick={() => startRates(order)} disabled={!canBuy}><PackageCheck size={15} />Review rates</Button>
                       ) : null}
                       {label?.status === "completed" || label?.status === "in_transit" || label?.status === "delivered" || label?.status === "exception" ? (
-                        <a className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white" href={`/api/shipping/labels/${encodeURIComponent(label.id)}/download`} target="_blank" rel="noreferrer"><Printer size={15} />Reprint</a>
+                        <a className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white xl:w-auto" href={`/api/shipping/labels/${encodeURIComponent(label.id)}/download`} target="_blank" rel="noreferrer"><Printer size={15} />Reprint</a>
                       ) : null}
                       {label?.trackingNumber ? (
-                        <Button variant="secondary" onClick={() => navigator.clipboard.writeText(label.trackingNumber!)}><Clipboard size={15} />Copy tracking</Button>
+                        <Button variant="secondary" className="w-full xl:w-auto" onClick={() => navigator.clipboard.writeText(label.trackingNumber!)}><Clipboard size={15} />Copy tracking</Button>
                       ) : null}
                       {label?.trackingUrl ? (
-                        <a className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900" href={label.trackingUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />Open tracking</a>
+                        <a className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 xl:w-auto" href={label.trackingUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />Open tracking</a>
                       ) : null}
                       {label && label.status !== "delivered" ? (
-                        <Button variant="ghost" className="text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => voidLabel(order)} disabled={voidingId === label.id}><X size={15} />{voidingId === label.id ? "Voiding..." : "Void label"}</Button>
+                        <Button variant="ghost" className="w-full text-red-700 hover:bg-red-50 hover:text-red-700 xl:w-auto" onClick={() => voidLabel(order)} disabled={voidingId === label.id}><X size={15} />{voidingId === label.id ? "Voiding..." : "Void label"}</Button>
                       ) : null}
                     </div>
                   </div>
@@ -361,9 +362,13 @@ export function ShippingWorkbench({ initialOrders, initialConfig }: ShippingWork
                             <label key={rate.id} className={`flex items-center gap-3 rounded-md border bg-white p-3 ${rate.purchasable ? "cursor-pointer" : "cursor-not-allowed opacity-60"} ${selectedRateId === rate.id ? "border-slate-950 ring-1 ring-slate-950" : "border-slate-200"}`}>
                               <input type="radio" name={`rate-${order.id}`} checked={selectedRateId === rate.id} disabled={!rate.purchasable} onChange={() => setSelectedRateId(rate.id)} />
                               <span className="min-w-0 flex-1">
-                                <span className="block font-semibold text-slate-950">{rate.carrierName} {rate.serviceName}</span>
+                                <span className="flex flex-wrap items-center gap-1.5">
+                                  <span className="font-semibold text-slate-950">{rate.carrierName} {rate.serviceName}</span>
+                                  {(rateBadges[rate.id] ?? []).map((badge) => (
+                                    <Badge key={badge} tone={badge === "Cheapest" ? "green" : badge === "Fastest" ? "blue" : "slate"}>{badge}</Badge>
+                                  ))}
+                                </span>
                                 <span className="block text-xs text-slate-500">{deliveryText(rate)}</span>
-                                {rate.serviceCode === "ups_ground_saver" ? <span className="mt-1 block text-xs font-medium text-amber-700">Requires a funded UPS from ShipStation balance.</span> : null}
                                 {!rate.purchasable ? <span className="mt-1 block text-xs font-medium text-amber-700">{rate.purchaseBlockReason}</span> : null}
                               </span>
                               <span className="font-semibold text-slate-950">{formatCurrency(rate.amountCents)}</span>

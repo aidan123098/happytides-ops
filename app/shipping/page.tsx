@@ -19,7 +19,7 @@ export default async function ShippingPage() {
         title="Shipping"
         description="Review addresses, compare carrier rates, print labels, and track delivery from one queue."
         icon={Truck}
-        kicker={config.enabled ? "ShipStation enabled" : "Setup required"}
+        kicker={config.enabled ? "Shipping enabled" : "Setup required"}
         stats={[
           { label: "Ready for label", value: formatNumber(ready), detail: "Paid or packed with an address", icon: PackageCheck, tone: ready ? "green" : "slate" },
           { label: "In transit", value: formatNumber(inTransit), detail: "Carrier movement recorded", icon: Truck, tone: inTransit ? "cyan" : "slate" },

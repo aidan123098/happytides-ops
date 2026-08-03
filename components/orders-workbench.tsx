@@ -544,13 +544,13 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
     );
   }
 
-  function shippingAction(order: Order) {
+  function shippingAction(order: Order, className = "") {
     if (order.deliveryMethod !== "ship") return null;
     if (!order.shippingLabel && order.status !== "paid" && order.status !== "packed") return null;
     return (
       <Link
         href={`/shipping?orderId=${encodeURIComponent(order.id)}`}
-        className="inline-flex h-8 flex-1 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-900 shadow-sm transition-colors hover:bg-slate-50 lg:flex-none"
+        className={`inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-900 shadow-sm transition-colors hover:bg-slate-50 ${className}`}
       >
         <PackageCheck size={14} />
         {order.shippingLabel ? "Reprint label" : "Create label"}
@@ -665,13 +665,13 @@ export function OrdersWorkbench({ initialOrders, initialProducts, initialInvento
                 {order.items.length > 4 ? <div className="text-xs font-medium text-slate-500">+{order.items.length - 4} more items</div> : null}
               </div>
 
-              <div className="mt-3 flex gap-2">
-                {shippingAction(order)}
-                <Button type="button" variant="secondary" className="h-8 flex-1" onClick={() => startEdit(order)} disabled={removingThisOrder || savingOrderId === order.id}>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {shippingAction(order, "col-span-2 w-full")}
+                <Button type="button" variant="secondary" className="h-8 w-full" onClick={() => startEdit(order)} disabled={removingThisOrder || savingOrderId === order.id}>
                   <Edit3 size={15} />
                   Edit
                 </Button>
-                <Button type="button" variant="ghost" className="h-8 flex-1 text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => removeOrder(order)} disabled={removingThisOrder}>
+                <Button type="button" variant="ghost" className="h-8 w-full text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => removeOrder(order)} disabled={removingThisOrder}>
                   <Trash2 size={15} />
                   {removingThisOrder ? "Removing..." : "Remove"}
                 </Button>
