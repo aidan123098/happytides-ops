@@ -500,7 +500,7 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
 
 async function setOrderStatus(orderId: string, stage: OrderStage, actor: SessionUser, request?: Request, forwardOnly = false) {
   return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${orderId}))`;
+    await tx.$queryRaw`SELECT 1::int AS "lockAcquired" FROM pg_advisory_xact_lock(hashtext(${orderId}))`;
     const existing = await tx.order.findUnique({
       relationLoadStrategy: "join",
       where: { id: orderId },
