@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import test from "node:test";
-import { canPurchaseShippingLabel, isShippingAddressComplete, shouldAdvanceOrderStage, sortShippingRates, trackingOrderStage } from "@/lib/shipping-policy";
-import { getShipStationRates, purchaseShipStationLabel, ShipStationError } from "@/lib/services/shipstation";
+import { canPurchaseShippingLabel, isShippingAddressComplete, shippingRatesUnderLimit, shouldAdvanceOrderStage, sortShippingRates, trackingOrderStage } from "@/lib/shipping-policy";
+import { downloadShipStationLabel, getShipStationLabel, getShipStationRates, purchaseShipStationLabel, ShipStationError, voidShipStationLabel } from "@/lib/services/shipstation";
 import { ShipStationWebhookError, verifyShipStationWebhook } from "@/lib/services/shipstation-webhook";
 import { orderInputSchema } from "@/lib/validation";
 import type { ShippingAddress, ShippingRate } from "@/types/domain";
@@ -36,6 +36,28 @@ test("rates sort by full cost and carrier tracking only moves orders forward", (
   assert.equal(trackingOrderStage("delivered"), "delivered");
   assert.equal(shouldAdvanceOrderStage("paid", "shipped"), true);
   assert.equal(shouldAdvanceOrderStage("delivered", "shipped"), false);
+});
+
+test("shipping quotes include only rates strictly under sixteen dollars", () => {
+  const baseRate: ShippingRate = {
+    id: "rate",
+    carrierId: "carrier",
+    carrierCode: "ups",
+    carrierName: "UPS",
+    serviceCode: "ups_ground",
+    serviceName: "UPS Ground",
+    amountCents: 0,
+    currency: "usd",
+    purchasable: true
+  };
+  const rates = [
+    { ...baseRate, id: "over", amountCents: 1601 },
+    { ...baseRate, id: "boundary", amountCents: 1600 },
+    { ...baseRate, id: "included", amountCents: 1599 },
+    { ...baseRate, id: "cheapest", amountCents: 710 }
+  ];
+
+  assert.deepEqual(shippingRatesUnderLimit(rates).map((rate) => rate.id), ["cheapest", "included"]);
 });
 
 test("order validation requires an address for ship but not local pickup", () => {
@@ -119,13 +141,24 @@ test("ShipStation rate and label responses normalize through mocked fetch", asyn
   }
 });
 
-test("UPS Ground Saver remains visible but cannot reach label purchase", async () => {
+test("UPS Ground Saver remains selectable and uses its exact returned rate id", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.SHIPSTATION_API_KEY;
   process.env.SHIPSTATION_API_KEY = "test-key";
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   globalThis.fetch = async (input, init) => {
-    requests.push({ url: String(input), init });
+    const url = String(input);
+    requests.push({ url, init });
+    if (url.includes("/labels/rates/")) {
+      return Response.json({
+        label_id: "se-ground-saver-label",
+        shipment_id: "se-shipment",
+        rate_id: "se-ground-saver",
+        tracking_number: "1ZGROUND",
+        shipment_cost: { amount: 5.69, currency: "usd" },
+        label_download: { pdf: "https://api.shipstation.com/v2/downloads/ground-saver.pdf" }
+      });
+    }
     return Response.json({
       shipment_id: "se-shipment",
       rate_response: {
@@ -162,16 +195,14 @@ test("UPS Ground Saver remains visible but cannot reach label purchase", async (
       parcel: { packageCode: "package", weightOz: 3, lengthIn: 10, widthIn: 6, heightIn: 1 }
     });
     assert.equal(result.rates[0]?.id, "se-ground-saver");
-    assert.equal(result.rates[0]?.purchasable, false);
-    assert.match(result.rates[0]?.purchaseBlockReason ?? "", /choose another UPS service/i);
+    assert.equal(result.rates[0]?.purchasable, true);
     assert.equal(result.rates[1]?.id, "se-ground");
     assert.equal(result.rates[1]?.purchasable, true);
 
-    await assert.rejects(
-      () => purchaseShipStationLabel("se-ground-saver", "ups_ground_saver"),
-      /unavailable for API label purchases/i
-    );
-    assert.equal(requests.length, 1);
+    const label = await purchaseShipStationLabel("se-ground-saver");
+    assert.equal(label.labelId, "se-ground-saver-label");
+    assert.equal(new URL(requests[1]!.url).pathname, "/v2/labels/rates/se-ground-saver");
+    assert.equal(requests.length, 2);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
@@ -186,13 +217,71 @@ test("ShipStation label errors retain the exact rate path and upstream status", 
   globalThis.fetch = async () => Response.json({ errors: [{ message: "Carrier rejected this service." }] }, { status: 422 });
 
   try {
-    await assert.rejects(() => purchaseShipStationLabel("se-ground", "ups_ground"), (error: unknown) => {
+    await assert.rejects(() => purchaseShipStationLabel("se-ground"), (error: unknown) => {
       assert.equal(error instanceof ShipStationError, true);
       assert.equal((error as ShipStationError).status, 422);
       assert.equal((error as ShipStationError).providerPath, "/v2/labels/rates/se-ground");
       assert.equal((error as ShipStationError).message, "Carrier rejected this service.");
       return true;
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
+    else process.env.SHIPSTATION_API_KEY = originalKey;
+  }
+});
+
+test("completed labels can be reloaded, downloaded as PDF, and explicitly voided", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SHIPSTATION_API_KEY;
+  process.env.SHIPSTATION_API_KEY = "  test-key  ";
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    requests.push({ url, init });
+    if (url.endsWith("/labels/se-label")) {
+      return Response.json({
+        label_id: "se-label",
+        shipment_id: "se-shipment",
+        tracking_number: "1Z999",
+        label_download: { pdf: "https://api.shipstation.com/v2/downloads/labels/test.pdf" }
+      });
+    }
+    if (url.endsWith("/labels/se-label/void")) {
+      return Response.json({ approved: true, message: "Refund requested." });
+    }
+    return new Response("%PDF-1.4\n", { headers: { "Content-Type": "application/pdf" } });
+  };
+
+  try {
+    const label = await getShipStationLabel("se-label");
+    assert.equal(label.trackingNumber, "1Z999");
+    const pdf = await downloadShipStationLabel(label.labelDownloadUrl!);
+    assert.equal(new TextDecoder().decode(pdf), "%PDF-1.4\n");
+    const voidResult = await voidShipStationLabel("se-label");
+    assert.deepEqual(voidResult, { approved: true, message: "Refund requested." });
+
+    assert.equal(new URL(requests[0]!.url).pathname, "/v2/labels/se-label");
+    assert.equal(new URL(requests[1]!.url).pathname, "/v2/downloads/labels/test.pdf");
+    assert.equal((requests[1]?.init?.headers as Record<string, string>)["API-Key"], "test-key");
+    assert.equal(new URL(requests[2]!.url).pathname, "/v2/labels/se-label/void");
+    assert.equal(requests[2]?.init?.method, "PUT");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;
+    else process.env.SHIPSTATION_API_KEY = originalKey;
+  }
+});
+
+test("a void response without explicit provider approval is not accepted", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SHIPSTATION_API_KEY;
+  process.env.SHIPSTATION_API_KEY = "test-key";
+  globalThis.fetch = async () => Response.json({ message: "Request received." });
+
+  try {
+    const result = await voidShipStationLabel("se-label");
+    assert.equal(result.approved, false);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.SHIPSTATION_API_KEY;

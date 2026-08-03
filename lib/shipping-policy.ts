@@ -1,5 +1,7 @@
 import type { OrderStage, ShippingAddress, ShippingRate } from "@/types/domain";
 
+export const shippingRateLimitCents = 1600;
+
 export function isShippingAddressComplete(address: Partial<ShippingAddress> | null | undefined) {
   return Boolean(
     address?.recipientName?.trim()
@@ -17,6 +19,10 @@ export function canPurchaseShippingLabel(stage: OrderStage) {
 
 export function sortShippingRates(rates: ShippingRate[]) {
   return [...rates].sort((left, right) => left.amountCents - right.amountCents || left.serviceName.localeCompare(right.serviceName));
+}
+
+export function shippingRatesUnderLimit(rates: ShippingRate[]) {
+  return sortShippingRates(rates.filter((rate) => rate.amountCents < shippingRateLimitCents));
 }
 
 export function trackingOrderStage(statusCode: string | null | undefined, statusDetail?: string | null): OrderStage | undefined {

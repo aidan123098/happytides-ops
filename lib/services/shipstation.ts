@@ -2,7 +2,6 @@ import type { ShippingAddress, ShippingRate } from "@/types/domain";
 
 const shipStationBaseUrl = "https://api.shipstation.com/v2";
 const requestTimeoutMs = 15_000;
-const upsGroundSaverPurchaseBlockReason = "UPS Ground Saver is unavailable for API label purchases. Choose another UPS service.";
 
 type JsonObject = Record<string, unknown>;
 
@@ -56,10 +55,6 @@ export class ShipStationError extends Error {
     this.retryable = options.retryable ?? false;
     this.ambiguous = options.ambiguous ?? false;
   }
-}
-
-export function shipStationRatePurchaseBlockReason(serviceCode: string) {
-  return serviceCode.trim().toLowerCase() === "ups_ground_saver" ? upsGroundSaverPurchaseBlockReason : undefined;
 }
 
 function objectValue(value: unknown): JsonObject {
@@ -281,7 +276,6 @@ export async function getShipStationRates(input: {
       .reduce<number>((total, amount) => total + moneyCents(amount), 0);
     const deliveryDays = numberValue(rate.delivery_days);
     const serviceCode = stringValue(rate.service_code) ?? "";
-    const purchaseBlockReason = shipStationRatePurchaseBlockReason(serviceCode);
     return {
       id,
       carrierId: stringValue(rate.carrier_id) ?? "",
@@ -291,8 +285,7 @@ export async function getShipStationRates(input: {
       serviceName: stringValue(rate.service_type, rate.service_name, rate.service_code) ?? "Service",
       amountCents,
       currency: stringValue(objectValue(rate.shipping_amount).currency, rate.currency) ?? "usd",
-      purchasable: !purchaseBlockReason,
-      ...(purchaseBlockReason ? { purchaseBlockReason } : {}),
+      purchasable: true,
       deliveryDays,
       estimatedDeliveryAt: stringValue(rate.estimated_delivery_date)
     };
@@ -335,10 +328,7 @@ function normalizeLabel(payload: unknown): ShipStationLabel {
   };
 }
 
-export async function purchaseShipStationLabel(rateId: string, serviceCode?: string) {
-  const purchaseBlockReason = serviceCode ? shipStationRatePurchaseBlockReason(serviceCode) : undefined;
-  if (purchaseBlockReason) throw new Error(purchaseBlockReason);
-
+export async function purchaseShipStationLabel(rateId: string) {
   const payload = await shipStationRequest<unknown>(`/labels/rates/${encodeURIComponent(rateId)}`, {
     method: "POST",
     body: JSON.stringify({
@@ -367,7 +357,7 @@ export async function findShipStationLabel(externalShipmentId: string) {
 export async function voidShipStationLabel(labelId: string) {
   const payload = objectValue(await shipStationRequest<unknown>(`/labels/${encodeURIComponent(labelId)}/void`, { method: "PUT" }));
   return {
-    approved: payload.approved !== false,
+    approved: payload.approved === true,
     message: stringValue(payload.message)
   };
 }
@@ -382,10 +372,11 @@ export async function downloadShipStationLabel(downloadUrl: string) {
   );
   if (!allowedHost) throw new ShipStationError("ShipStation returned an invalid label download URL.");
 
+  const apiKey = process.env.SHIPSTATION_API_KEY?.trim();
   const response = await fetch(url, {
     cache: "no-store",
     signal: AbortSignal.timeout(requestTimeoutMs),
-    headers: process.env.SHIPSTATION_API_KEY ? { "API-Key": process.env.SHIPSTATION_API_KEY } : undefined
+    headers: apiKey ? { "API-Key": apiKey } : undefined
   });
   if (!response.ok) throw new ShipStationError("The label PDF could not be downloaded from ShipStation.", { status: response.status });
   return response.arrayBuffer();

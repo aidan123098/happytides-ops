@@ -176,7 +176,8 @@ export function ShippingWorkbench({ initialOrders, initialConfig }: ShippingWork
         return;
       }
       setQuote(payload);
-      const firstPurchasableRate = payload.rates.find((rate: ShippingRate) => rate.purchasable);
+      const firstPurchasableRate = payload.rates.find((rate: ShippingRate) => rate.purchasable && rate.serviceCode !== "ups_ground_saver")
+        ?? payload.rates.find((rate: ShippingRate) => rate.purchasable);
       setSelectedRateId(firstPurchasableRate?.id ?? "");
       setMessage(firstPurchasableRate
         ? { tone: "green", text: `${payload.rates.length} live rate${payload.rates.length === 1 ? "" : "s"} loaded. No postage has been purchased.` }
@@ -362,6 +363,7 @@ export function ShippingWorkbench({ initialOrders, initialConfig }: ShippingWork
                               <span className="min-w-0 flex-1">
                                 <span className="block font-semibold text-slate-950">{rate.carrierName} {rate.serviceName}</span>
                                 <span className="block text-xs text-slate-500">{deliveryText(rate)}</span>
+                                {rate.serviceCode === "ups_ground_saver" ? <span className="mt-1 block text-xs font-medium text-amber-700">Requires a funded UPS from ShipStation balance.</span> : null}
                                 {!rate.purchasable ? <span className="mt-1 block text-xs font-medium text-amber-700">{rate.purchaseBlockReason}</span> : null}
                               </span>
                               <span className="font-semibold text-slate-950">{formatCurrency(rate.amountCents)}</span>

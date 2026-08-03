@@ -4,7 +4,7 @@ import { writeAuditLog } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { orderStageFromPersistence } from "@/lib/order-stage";
 import { prisma } from "@/lib/prisma";
-import { canPurchaseShippingLabel, isShippingAddressComplete, sortShippingRates } from "@/lib/shipping-policy";
+import { canPurchaseShippingLabel, isShippingAddressComplete, shippingRatesUnderLimit } from "@/lib/shipping-policy";
 import { getOrders } from "@/lib/services/operational-data";
 import {
   downloadShipStationLabel,
@@ -16,7 +16,6 @@ import {
   listShipStationCarriers,
   listShipStationWarehouses,
   purchaseShipStationLabel,
-  shipStationRatePurchaseBlockReason,
   ShipStationError,
   testShipStationConnection,
   voidShipStationLabel,
@@ -48,11 +47,9 @@ function ratesFromJson(value: Prisma.JsonValue | null | undefined): ShippingRate
       || typeof entry.amountCents !== "number"
       || typeof entry.currency !== "string") return [];
 
-    const serviceBlockReason = shipStationRatePurchaseBlockReason(entry.serviceCode);
     const storedBlockReason = typeof entry.purchaseBlockReason === "string" ? entry.purchaseBlockReason : undefined;
-    const purchasable = !serviceBlockReason && entry.purchasable !== false;
-    const purchaseBlockReason = serviceBlockReason
-      ?? storedBlockReason
+    const purchasable = entry.purchasable !== false;
+    const purchaseBlockReason = storedBlockReason
       ?? (!purchasable ? "This shipping rate is unavailable for label purchases." : undefined);
     return [{
       id: entry.id,
@@ -349,7 +346,8 @@ export async function prepareShippingRates(input: {
       address: originalAddress,
       parcel
     });
-    const rates = sortShippingRates(result.rates);
+    const rates = shippingRatesUnderLimit(result.rates);
+    if (!rates.length) throw new Error("No shipping rates under $16 are available for this package.");
     const correctedAddress = result.correctedAddress;
     await prisma.shippingShipment.update({
       where: { id: shipment.id },
@@ -436,8 +434,9 @@ export async function purchaseShippingLabel(input: { shipmentId: string; rateId:
   }
   const rate = ratesFromJson(initial.quotedRates).find((item) => item.id === input.rateId);
   if (!rate) throw new Error("The selected rate is no longer valid. Review rates again.");
-  const purchaseBlockReason = shipStationRatePurchaseBlockReason(rate.serviceCode)
-    ?? (!rate.purchasable ? rate.purchaseBlockReason ?? "This shipping rate is unavailable for label purchases." : undefined);
+  const purchaseBlockReason = !rate.purchasable
+    ? rate.purchaseBlockReason ?? "This shipping rate is unavailable for label purchases."
+    : undefined;
   if (purchaseBlockReason) throw new Error(purchaseBlockReason);
 
   try {
@@ -465,7 +464,7 @@ export async function purchaseShippingLabel(input: { shipmentId: string; rateId:
   try {
     let label: ShipStationLabel;
     try {
-      label = await purchaseShipStationLabel(rate.id, rate.serviceCode);
+      label = await purchaseShipStationLabel(rate.id);
     } catch (error) {
       if (!(error instanceof ShipStationError) || !error.ambiguous) throw error;
       const recovered = await findShipStationLabel(initial.externalShipmentId);
