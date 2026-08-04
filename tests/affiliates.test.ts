@@ -7,6 +7,7 @@ import {
   canAssignAffiliate,
   canChangeAffiliateRate,
   canTransitionAffiliateStatus,
+  canonicalAffiliateStatus,
   displayAffiliateCode,
   isValidAffiliateCode,
   normalizeAffiliateCode
@@ -34,10 +35,26 @@ test("declining archives a unique key while releasing the visible code", () => {
 
 test("only active, non-archived affiliates are assignable", () => {
   assert.equal(canAssignAffiliate({ status: "active", archivedAt: null }), true);
+  assert.equal(canAssignAffiliate({ status: "approved", archivedAt: null }), true);
   assert.equal(canAssignAffiliate({ status: "pending", archivedAt: null }), false);
   assert.equal(canAssignAffiliate({ status: "paused", archivedAt: null }), false);
   assert.equal(canAssignAffiliate({ status: "active", archivedAt: new Date() }), false);
   assert.equal(canAssignAffiliate(undefined), false);
+});
+
+test("website affiliate statuses map to the dashboard lifecycle", () => {
+  assert.equal(canonicalAffiliateStatus("approved"), "active");
+  assert.equal(canonicalAffiliateStatus("disabled"), "paused");
+  assert.equal(canonicalAffiliateStatus("rejected"), "declined");
+  assert.equal(canonicalAffiliateStatus("pending"), "pending");
+  assert.equal(canonicalAffiliateStatus("approved", new Date()), "declined");
+});
+
+test("affiliate type accepts only the three persisted classifications", () => {
+  assert.equal(affiliateInputSchema.parse({ name: "Online", code: "ONLINE1" }).affiliateType, "online");
+  assert.equal(affiliateInputSchema.parse({ name: "Wholesale", code: "WHOLESALE1", affiliateType: "wholesale" }).affiliateType, "wholesale");
+  assert.equal(affiliateInputSchema.parse({ name: "Influencer", code: "INFLUENCER1", affiliateType: "influencer" }).affiliateType, "influencer");
+  assert.equal(affiliateInputSchema.safeParse({ name: "Invalid", code: "INVALID1", affiliateType: "other" }).success, false);
 });
 
 test("commission uses product net and excludes shipping and tax", () => {

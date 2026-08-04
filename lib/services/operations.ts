@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { FulfillmentStatus, InventoryMovementType, InventoryStatus, OrderDeliveryMethod, PaymentMethod, PaymentStatus, CustomerSource, CustomerStatus, OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { affiliatePayoutDueCents, affiliateRevenueBasisCents, canAssignAffiliate } from "@/lib/affiliate-rules";
+import { canAssignAffiliate } from "@/lib/affiliate-rules";
 import { writeAuditLog } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { transitionInventoryCounts } from "@/lib/inventory-counts";
@@ -312,38 +312,8 @@ async function recalculateCustomerStats(tx: Tx, customerId: string) {
   });
 }
 
-async function recalculateAffiliateMetrics(tx: Tx, affiliateId?: string | null) {
-  if (!affiliateId) return;
-
-  const affiliate = await tx.affiliate.findUnique({ where: { id: affiliateId } });
-  if (!affiliate) return;
-
-  const where = { affiliateId, archivedAt: null, paymentStatus: PaymentStatus.PAID } satisfies Prisma.OrderWhereInput;
-  const [orderStats, referredCustomerRows] = await Promise.all([
-    tx.order.aggregate({
-      where,
-      _count: { _all: true },
-      _sum: { subtotalCents: true, discountCents: true }
-    }),
-    tx.order.findMany({
-      where,
-      distinct: ["customerId"],
-      select: { customerId: true }
-    })
-  ]);
-  const revenueGeneratedCents = affiliateRevenueBasisCents(orderStats._sum.subtotalCents ?? 0, orderStats._sum.discountCents ?? 0);
-  const referredCustomers = referredCustomerRows.length;
-  const payoutDueCents = affiliatePayoutDueCents(revenueGeneratedCents, affiliate.payoutRateBps, affiliate.totalPayoutCents);
-
-  await tx.affiliate.update({
-    where: { id: affiliateId },
-    data: {
-      revenueGeneratedCents,
-      referredOrders: orderStats._count._all,
-      referredCustomers,
-      payoutDueCents
-    }
-  });
+async function syncAffiliateCommission(tx: Tx, orderId: string) {
+  await tx.$queryRaw`SELECT public.sync_dashboard_affiliate_commission(${orderId})`;
 }
 
 export async function createOrder(payload: OrderPayload, actor: SessionUser, request?: Request) {
@@ -411,8 +381,9 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
     await transitionOrderInventory(tx, [], "unfulfilled", order.items, stage, actor, order.orderNumber);
 
     if (isPaidStage(stage)) {
-      await Promise.all([recalculateCustomerStats(tx, payload.customerId), recalculateAffiliateMetrics(tx, payload.affiliateId)]);
+      await recalculateCustomerStats(tx, payload.customerId);
     }
+    await syncAffiliateCommission(tx, order.id);
     await writeAuditLog({ actor, entityType: "ORDER", entityId: order.id, action: "ORDER_CREATED", after: order, request }, tx);
 
     return order;
@@ -497,11 +468,10 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
     if (isPaidStage(previousStage) || isPaidStage(stage)) {
       await Promise.all([
         recalculateCustomerStats(tx, existing.customerId),
-        existing.customerId !== payload.customerId ? recalculateCustomerStats(tx, payload.customerId) : Promise.resolve(),
-        recalculateAffiliateMetrics(tx, existing.affiliateId),
-        existing.affiliateId !== payload.affiliateId ? recalculateAffiliateMetrics(tx, payload.affiliateId) : Promise.resolve()
+        existing.customerId !== payload.customerId ? recalculateCustomerStats(tx, payload.customerId) : Promise.resolve()
       ]);
     }
+    await syncAffiliateCommission(tx, updated.id);
     await writeAuditLog({ actor, entityType: "ORDER", entityId: updated.id, action: "UPDATE", before: existing, after: updated, request }, tx);
 
     return { order: updated, changedBatchIds };
@@ -544,8 +514,9 @@ async function setOrderStatus(orderId: string, stage: OrderStage, actor: Session
     });
 
     if (isPaidStage(previousStage) !== isPaidStage(stage)) {
-      await Promise.all([recalculateCustomerStats(tx, existing.customerId), recalculateAffiliateMetrics(tx, existing.affiliateId)]);
+      await recalculateCustomerStats(tx, existing.customerId);
     }
+    await syncAffiliateCommission(tx, updated.id);
     await writeAuditLog({ actor, entityType: "ORDER", entityId: orderId, action: "STATUS_CHANGED", before: { status: previousStage }, after: { status: stage }, request }, tx);
     return { order: updated, changedBatchIds };
   });
@@ -585,7 +556,8 @@ export async function cancelOrder(orderId: string, actor: SessionUser, request?:
       }
     });
 
-    await Promise.all([recalculateCustomerStats(tx, existing.customerId), recalculateAffiliateMetrics(tx, existing.affiliateId)]);
+    await recalculateCustomerStats(tx, existing.customerId);
+    await syncAffiliateCommission(tx, canceled.id);
     await writeAuditLog({ actor, entityType: "ORDER", entityId: existing.id, action: "ORDER_CANCELED", before: existing, after: canceled, request }, tx);
 
     return canceled;

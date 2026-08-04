@@ -28,7 +28,16 @@ export function affiliatePayoutDueCents(revenueCents: number, payoutRateBps: num
 }
 
 export function canAssignAffiliate(affiliate: { status: string; archivedAt?: Date | string | null } | null | undefined) {
-  return Boolean(affiliate && !affiliate.archivedAt && affiliate.status === "active");
+  return Boolean(affiliate && !affiliate.archivedAt && ["active", "approved"].includes(affiliate.status.toLowerCase()));
+}
+
+export function canonicalAffiliateStatus(status: string, archivedAt?: Date | string | null) {
+  if (archivedAt) return "declined" as const;
+  const normalized = status.toLowerCase();
+  if (normalized === "active" || normalized === "approved") return "active" as const;
+  if (normalized === "paused" || normalized === "disabled") return "paused" as const;
+  if (normalized === "declined" || normalized === "rejected" || normalized === "archived") return "declined" as const;
+  return "pending" as const;
 }
 
 export function canChangeAffiliateRate(currentRateBps: number, requestedRateBps: number, referredOrders: number) {
@@ -36,8 +45,9 @@ export function canChangeAffiliateRate(currentRateBps: number, requestedRateBps:
 }
 
 export function canTransitionAffiliateStatus(current: string, requested: string) {
-  return current === requested
-    || (current === "pending" && requested === "active")
-    || (current === "active" && requested === "paused")
-    || (current === "paused" && requested === "active");
+  const canonicalCurrent = canonicalAffiliateStatus(current);
+  return canonicalCurrent === requested
+    || (canonicalCurrent === "pending" && requested === "active")
+    || (canonicalCurrent === "active" && requested === "paused")
+    || (canonicalCurrent === "paused" && requested === "active");
 }

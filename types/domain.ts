@@ -196,7 +196,12 @@ export type Affiliate = {
   name: string;
   code: string;
   affiliateType: "online" | "wholesale" | "influencer";
+  source: "website" | "staff";
   status: "N/A" | "active" | "paused" | "pending" | "declined";
+  contactEmail?: string;
+  contactPhone?: string;
+  submittedAt: string;
+  approvedAt: string;
   revenueGeneratedCents: number | null;
   payoutRatePercent: number | null;
   totalPayoutCents: number | null;
@@ -225,7 +230,52 @@ export type AffiliateActivityDetail = {
   createdAt: string;
 };
 
+export type AffiliateCommissionDetail = {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  commissionType: "first_order" | "repeat";
+  rateBps: number;
+  commissionableCents: number;
+  amountCents: number;
+  reversedCents: number;
+  netCents: number;
+  status: "pending" | "approved" | "paid" | "reversed";
+  earnedAt: string;
+  eligibleAt?: string;
+  refunds: Array<{
+    id: string;
+    externalReference: string;
+    refundedMerchandiseCents: number;
+    reversedCommissionCents: number;
+    createdAt: string;
+  }>;
+};
+
+export type AffiliatePayoutDetail = {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  amountCents: number;
+  status: "draft" | "approved" | "paid" | "cancelled";
+  externalReference?: string;
+  approvedAt?: string;
+  paidAt?: string;
+  createdAt: string;
+};
+
+export type AffiliateProgram = {
+  active: boolean;
+  shopperDiscountPercent: number;
+  firstOrderCommissionPercent: number;
+  repeatCommissionPercent: number;
+  attributionDays: number;
+};
+
 export type AffiliateDetail = {
   orders: AffiliateOrderDetail[];
+  commissions: AffiliateCommissionDetail[];
+  payouts: AffiliatePayoutDetail[];
   activity: AffiliateActivityDetail[];
 };

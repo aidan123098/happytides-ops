@@ -19,7 +19,7 @@ import {
   WalletCards,
   X
 } from "lucide-react";
-import type { Affiliate, AffiliateDetail } from "@/types/domain";
+import type { Affiliate, AffiliateDetail, AffiliatePayoutDetail, AffiliateProgram } from "@/types/domain";
 import { DataTable, Td } from "@/components/data-table";
 import { MetricCard } from "@/components/metric-card";
 import { Badge } from "@/components/ui/badge";
@@ -27,23 +27,23 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { formatCurrencyOrNA, formatNumberOrNA, formatPercentOrNA } from "@/lib/utils";
+import { formatCurrencyOrNA, formatNumberOrNA } from "@/lib/utils";
 
 type AffiliateStatus = "active" | "paused" | "pending";
 
 type AffiliateForm = {
   name: string;
   code: string;
+  affiliateType: Affiliate["affiliateType"];
   status: AffiliateStatus;
-  payoutRate: string;
   notes: string;
 };
 
 const emptyForm: AffiliateForm = {
   name: "",
   code: "",
+  affiliateType: "online",
   status: "pending",
-  payoutRate: "20",
   notes: ""
 };
 
@@ -87,8 +87,8 @@ function affiliateToForm(affiliate: Affiliate): AffiliateForm {
   return {
     name: affiliate.name === "N/A" ? "" : affiliate.name,
     code: affiliate.code === "N/A" ? "" : affiliate.code,
+    affiliateType: affiliate.affiliateType,
     status: affiliate.status === "active" || affiliate.status === "paused" ? affiliate.status : "pending",
-    payoutRate: affiliate.payoutRatePercent === null ? "" : String(affiliate.payoutRatePercent),
     notes: affiliate.notes === "N/A" ? "" : affiliate.notes
   };
 }
@@ -97,8 +97,8 @@ function formPayload(form: AffiliateForm) {
   return {
     name: form.name.trim(),
     code: form.code.trim().toUpperCase(),
+    affiliateType: form.affiliateType,
     status: form.status,
-    payoutRatePercent: Number(form.payoutRate) || 0,
     notes: form.notes.trim() || undefined
   };
 }
@@ -117,24 +117,88 @@ function activityLabel(action: string) {
   return action.replace(/^AFFILIATE_/, "").replaceAll("_", " ").toLowerCase();
 }
 
+function affiliateTypeLabel(type: Affiliate["affiliateType"]) {
+  if (type === "wholesale") return "Wholesale";
+  if (type === "influencer") return "Influencer";
+  return "Online";
+}
+
+function PayoutHistory({
+  payouts,
+  busy,
+  onPay
+}: {
+  payouts: AffiliatePayoutDetail[];
+  busy: boolean;
+  onPay: (payout: AffiliatePayoutDetail, externalReference: string) => Promise<void>;
+}) {
+  const [references, setReferences] = useState<Record<string, string>>({});
+
+  if (payouts.length === 0) {
+    return <div className="rounded-md bg-white p-3 text-sm text-slate-500 ring-1 ring-slate-200/80">No monthly payouts prepared yet.</div>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {payouts.map((payout) => {
+        const open = payout.status === "draft" || payout.status === "approved";
+        return (
+          <div key={payout.id} className="rounded-md bg-white p-3 ring-1 ring-slate-200/80">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-slate-950">{displayDate(payout.periodStart)} to {displayDate(payout.periodEnd)}</div>
+                <div className="mt-1 text-xs text-slate-500">{payout.externalReference || (open ? "Awaiting payment reference" : "No reference recorded")}</div>
+              </div>
+              <div className="text-right">
+                <div className="font-semibold text-slate-950">{formatCurrencyOrNA(payout.amountCents)}</div>
+                <Badge tone={payout.status === "paid" ? "green" : "amber"}>{payout.status}</Badge>
+              </div>
+            </div>
+            {open ? (
+              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+                <Input
+                  value={references[payout.id] ?? ""}
+                  onChange={(event) => setReferences((current) => ({ ...current, [payout.id]: event.target.value }))}
+                  placeholder="Zelle confirmation or payment reference"
+                  maxLength={255}
+                />
+                <Button
+                  type="button"
+                  disabled={busy || !(references[payout.id] ?? "").trim()}
+                  onClick={() => onPay(payout, (references[payout.id] ?? "").trim())}
+                >
+                  <HandCoins size={15} />
+                  Mark paid
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function AffiliateDetails({
   affiliate,
+  program,
   detail,
   loading,
   copied,
   busy,
   onCopy,
   onEdit,
-  onPayout
+  onPayPayout
 }: {
   affiliate: Affiliate;
+  program: AffiliateProgram;
   detail?: AffiliateDetail;
   loading: boolean;
   copied: boolean;
   busy: boolean;
   onCopy: () => void;
   onEdit: () => void;
-  onPayout: () => void;
+  onPayPayout: (payout: AffiliatePayoutDetail, externalReference: string) => Promise<void>;
 }) {
   return (
     <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50/80 p-3 sm:p-4">
@@ -144,6 +208,8 @@ function AffiliateDetails({
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-lg font-semibold text-slate-950">{affiliate.name}</span>
             <Badge tone={statusTone(affiliate.status)}>{statusLabel(affiliate.status)}</Badge>
+            <Badge tone={affiliate.source === "website" ? "blue" : "slate"}>{affiliate.source === "website" ? "Website" : "Staff"}</Badge>
+            <Badge tone="slate">{affiliateTypeLabel(affiliate.affiliateType)}</Badge>
           </div>
         </div>
         <button
@@ -171,8 +237,8 @@ function AffiliateDetails({
           <div className="mt-1 font-semibold text-slate-950">{formatNumberOrNA(affiliate.referredCustomers)}</div>
         </div>
         <div className="rounded-md bg-white p-3 ring-1 ring-slate-200/80">
-          <div className="text-xs text-slate-500">Commission rate</div>
-          <div className="mt-1 font-semibold text-slate-950">{formatPercentOrNA(affiliate.payoutRatePercent)}</div>
+          <div className="text-xs text-slate-500">Commission program</div>
+          <div className="mt-1 font-semibold text-slate-950">{program.firstOrderCommissionPercent}% / {program.repeatCommissionPercent}%</div>
         </div>
       </div>
 
@@ -196,7 +262,23 @@ function AffiliateDetails({
         <p className="mt-1 text-sm leading-6 text-slate-700">{affiliate.notes && affiliate.notes !== "N/A" ? affiliate.notes : "No notes recorded."}</p>
       </div>
 
-      {loading ? <div className="text-sm text-slate-500">Loading referred orders and activity...</div> : null}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <div className="text-xs font-semibold uppercase text-slate-500">Contact email</div>
+          <div className="mt-1 break-all text-sm font-medium text-slate-900">{affiliate.contactEmail || "Not provided"}</div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase text-slate-500">Contact phone</div>
+          <div className="mt-1 text-sm font-medium text-slate-900">{affiliate.contactPhone || "Not provided"}</div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase text-slate-500">Application timing</div>
+          <div className="mt-1 text-sm font-medium text-slate-900">{affiliate.source === "website" ? `Submitted ${displayDate(affiliate.submittedAt)}` : "Created by staff"}</div>
+          {affiliate.approvedAt !== "N/A" ? <div className="text-xs text-slate-500">Approved {displayDate(affiliate.approvedAt)}</div> : null}
+        </div>
+      </div>
+
+      {loading ? <div className="text-sm text-slate-500">Loading commissions, payouts, orders, and activity...</div> : null}
       {!loading && detail ? (
         <div className="grid gap-4 xl:grid-cols-2">
           <div>
@@ -218,6 +300,39 @@ function AffiliateDetails({
             </div>
           </div>
           <div>
+            <div className="text-xs font-semibold uppercase text-slate-500">Commission ledger</div>
+            <div className="mt-2 space-y-2">
+              {detail.commissions.length > 0 ? detail.commissions.map((commission) => (
+                <div key={commission.id} className="rounded-md bg-white p-3 ring-1 ring-slate-200/80">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs font-semibold text-blue-700">{commission.orderNumber}</div>
+                      <div className="mt-1 truncate text-sm font-medium text-slate-900">{commission.customerName}</div>
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {commission.commissionType === "first_order" ? "First order" : "Repeat order"} · {(commission.rateBps / 100).toFixed(0)}% · {commission.status}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold text-slate-950">{formatCurrencyOrNA(commission.netCents)}</div>
+                      <div className="text-xs text-slate-500">on {formatCurrencyOrNA(commission.commissionableCents)}</div>
+                    </div>
+                  </div>
+                  {commission.refunds.length > 0 ? (
+                    <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-red-600">
+                      {commission.refunds.length} refund adjustment{commission.refunds.length === 1 ? "" : "s"} · {formatCurrencyOrNA(commission.reversedCents)} reversed
+                    </div>
+                  ) : null}
+                </div>
+              )) : <div className="rounded-md bg-white p-3 text-sm text-slate-500 ring-1 ring-slate-200/80">No commission entries yet.</div>}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-semibold uppercase text-slate-500">Monthly payouts</div>
+            <div className="mt-2">
+              <PayoutHistory payouts={detail.payouts} busy={busy} onPay={onPayPayout} />
+            </div>
+          </div>
+          <div>
             <div className="text-xs font-semibold uppercase text-slate-500">Management activity</div>
             <div className="mt-2 space-y-2">
               {detail.activity.length > 0 ? detail.activity.map((activity) => (
@@ -236,14 +351,10 @@ function AffiliateDetails({
       ) : null}
 
       {affiliate.status !== "declined" ? (
-        <div className="grid grid-cols-2 gap-2 sm:flex">
+        <div className="flex">
           <Button type="button" variant="secondary" className="w-full sm:w-auto" onClick={onEdit} disabled={busy}>
             <Edit3 size={15} />
             Edit partner
-          </Button>
-          <Button type="button" className="w-full sm:w-auto" onClick={onPayout} disabled={busy || (affiliate.payoutDueCents ?? 0) <= 0}>
-            <HandCoins size={15} />
-            Mark paid in full
           </Button>
         </div>
       ) : null}
@@ -251,7 +362,7 @@ function AffiliateDetails({
   );
 }
 
-export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affiliates: Affiliate[] }) {
+export function AffiliatesWorkbench({ affiliates: initialAffiliates, program }: { affiliates: Affiliate[]; program: AffiliateProgram }) {
   const [affiliates, setAffiliates] = useState(initialAffiliates.filter(isRealAffiliate));
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused" | "declined">("all");
@@ -265,11 +376,12 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<AffiliateForm>(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPreparingPayouts, setIsPreparingPayouts] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const editingAffiliate = editingId ? affiliates.find((affiliate) => affiliate.id === editingId) : undefined;
 
   const pendingAffiliates = affiliates.filter((affiliate) => affiliate.status === "pending");
-  const editingAffiliate = editingId ? affiliates.find((affiliate) => affiliate.id === editingId) : undefined;
   const directoryAffiliates = useMemo(() => {
     const query = search.trim().toLowerCase();
     return affiliates.filter((affiliate) => {
@@ -446,27 +558,40 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
     }
   }
 
-  async function recordPayout(affiliate: Affiliate) {
-    const payoutDueCents = affiliate.payoutDueCents ?? 0;
-    if (payoutDueCents <= 0) {
-      setError(`${affiliate.name} has no payout due.`);
-      return;
+  async function preparePayouts() {
+    setIsPreparingPayouts(true);
+    setError("");
+    try {
+      const response = await fetch("/api/affiliates/payouts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not prepare monthly payouts");
+      await refreshAffiliates();
+      if (expandedId) await loadAffiliateDetail(expandedId, true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not prepare monthly payouts");
+    } finally {
+      setIsPreparingPayouts(false);
     }
-    if (!window.confirm(`Record the full ${formatCurrencyOrNA(payoutDueCents)} payout for ${affiliate.name}?`)) return;
+  }
 
-    const key = `payout:${affiliate.id}`;
+  async function recordPayout(affiliate: Affiliate, payout: AffiliatePayoutDetail, externalReference: string) {
+    const key = `payout:${payout.id}`;
     setBusyKey(key);
     setError("");
     try {
-      const response = await fetch("/api/affiliates", {
+      const response = await fetch(`/api/affiliates/payouts/${encodeURIComponent(payout.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ affiliateId: affiliate.id, action: "mark-paid-full" })
+        body: JSON.stringify({ externalReference })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not record payout");
-      setAffiliates((current) => current.map((item) => item.id === affiliate.id ? data.affiliate : item));
-      if (expandedId === affiliate.id) await loadAffiliateDetail(affiliate.id, true);
+      await refreshAffiliates();
+      await loadAffiliateDetail(affiliate.id, true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not record payout");
     } finally {
@@ -531,7 +656,7 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
               <h2 className="text-base font-semibold text-slate-950">Pending approvals</h2>
               <Badge tone={pendingAffiliates.length > 0 ? "amber" : "slate"}>{pendingAffiliates.length}</Badge>
             </div>
-            <p className="mt-1 text-sm text-slate-600">Review new partner names, codes, rates, and notes before activation.</p>
+            <p className="mt-1 text-sm text-slate-600">Website applications arrive here automatically after account creation.</p>
           </div>
           <Button type="button" onClick={startAdd} className="w-full sm:w-auto">
             <Plus size={16} />
@@ -551,6 +676,8 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold text-slate-950">{affiliate.name}</span>
                           <Badge tone="amber">Pending</Badge>
+                          <Badge tone={affiliate.source === "website" ? "blue" : "slate"}>{affiliate.source === "website" ? "Website" : "Staff"}</Badge>
+                          <Badge tone="slate">{affiliateTypeLabel(affiliate.affiliateType)}</Badge>
                         </div>
                         <button type="button" onClick={() => copyCode(affiliate)} className="mt-2 inline-flex items-center gap-2 font-mono text-sm font-semibold text-blue-700 hover:text-blue-900" title="Copy affiliate code">
                           {copiedId === affiliate.id ? <Check size={14} /> : <Clipboard size={14} />}
@@ -558,8 +685,8 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
                         </button>
                       </div>
                       <div className="text-left sm:text-right">
-                        <div className="text-xs text-slate-500">Proposed rate</div>
-                        <div className="font-semibold text-slate-950">{formatPercentOrNA(affiliate.payoutRatePercent)}</div>
+                        <div className="text-xs text-slate-500">Submitted</div>
+                        <div className="font-semibold text-slate-950">{affiliate.source === "website" ? displayDate(affiliate.submittedAt) : "By staff"}</div>
                       </div>
                     </div>
                     {affiliate.notes && affiliate.notes !== "N/A" ? <p className="mt-3 text-sm leading-6 text-slate-600">{affiliate.notes}</p> : null}
@@ -621,24 +748,25 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
               <form onSubmit={saveAffiliate} className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <label className="xl:col-span-2">
                   <span className="text-xs font-semibold uppercase text-slate-500">Affiliate name</span>
-                  <Input required className="mt-1" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Partner or company" />
+                  <Input required disabled={editingAffiliate?.source === "website"} className="mt-1" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Partner or company" />
+                  {editingAffiliate?.source === "website" ? <span className="mt-1 block text-xs text-slate-500">Name comes from the linked website customer account.</span> : null}
                 </label>
                 <label>
                   <span className="text-xs font-semibold uppercase text-slate-500">Affiliate code</span>
                   <Input required minLength={3} maxLength={32} pattern="[A-Z0-9_-]{3,32}" className="mt-1 font-mono uppercase" value={form.code} onChange={(event) => setForm({ ...form, code: cleanCode(event.target.value) })} placeholder="PARTNER20" />
                 </label>
                 <label>
-                  <span className="flex items-center gap-2 text-xs font-semibold uppercase text-slate-500">Affiliate type <Badge tone="slate">Planned</Badge></span>
-                  <select disabled className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-slate-100 px-3 text-sm text-slate-500">
-                    <option>Online / Wholesale / Influencer</option>
+                  <span className="text-xs font-semibold uppercase text-slate-500">Affiliate type</span>
+                  <select disabled={editingAffiliate?.source === "website"} value={form.affiliateType} onChange={(event) => setForm({ ...form, affiliateType: event.target.value as Affiliate["affiliateType"] })} className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-500">
+                    <option value="online">Online</option>
+                    <option value="wholesale">Wholesale</option>
+                    <option value="influencer">Influencer</option>
                   </select>
+                  {editingAffiliate?.source === "website" ? <span className="mt-1 block text-xs text-slate-500">Website affiliates are always Online.</span> : null}
                 </label>
-                <label>
-                  <span className="text-xs font-semibold uppercase text-slate-500">Commission rate</span>
-                  <Input type="number" min="0" max="100" step="0.01" required disabled={(editingAffiliate?.referredOrders ?? 0) > 0} className="mt-1" value={form.payoutRate} onChange={(event) => setForm({ ...form, payoutRate: event.target.value })} placeholder="20" />
-                  {(editingAffiliate?.referredOrders ?? 0) > 0 ? <span className="mt-1 block text-xs text-slate-500">Locked after the first attributed order.</span> : null}
-                </label>
-                <div className="hidden xl:block" />
+                <div className="rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600 xl:col-span-2">
+                  Commissions use the shared program: {program.firstOrderCommissionPercent}% first order and {program.repeatCommissionPercent}% repeat.
+                </div>
                 <label className="md:col-span-2 xl:col-span-6">
                   <span className="text-xs font-semibold uppercase text-slate-500">Notes</span>
                   <Input className="mt-1" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Partner context, terms, or follow-up notes" />
@@ -665,30 +793,24 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
         <CardHeader>
           <div>
             <div className="flex items-center gap-2">
-              <CardTitle>Planned capabilities</CardTitle>
-              <Badge tone="slate">Planned</Badge>
+              <CardTitle>Affiliate program</CardTitle>
+              <Badge tone={program.active ? "green" : "slate"}>{program.active ? "Active" : "Inactive"}</Badge>
             </div>
-            <p className="mt-1 text-sm text-slate-500">These are visible for the next release but are disabled because the current database cannot save them yet.</p>
+            <p className="mt-1 text-sm text-slate-500">Live terms from the existing website program. New monthly payouts cover the previous calendar month.</p>
           </div>
+          <Button type="button" onClick={preparePayouts} disabled={isPreparingPayouts || !program.active}>
+            <HandCoins size={16} />
+            {isPreparingPayouts ? "Preparing..." : "Prepare monthly payouts"}
+          </Button>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-            {[
-              ["Affiliate type", "Online, Wholesale, and Influencer"],
-              ["Contact profile", "Email, phone, and social handle"],
-              ["Commission ledger", "Permanent per-order rate snapshots"],
-              ["Advanced payouts", "Partial payments, methods, voids, and history"],
-              ["Affiliate credit", "Negative balances after reversals"]
-            ].map(([title, detail]) => (
-              <div key={title} className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 opacity-75">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-slate-800">{title}</span>
-                  <Badge tone="slate">Planned</Badge>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>
-              </div>
-            ))}
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <div className="rounded-md bg-slate-50 p-3"><div className="text-xs text-slate-500">Customer discount</div><div className="mt-1 font-semibold text-slate-950">{program.shopperDiscountPercent}%</div></div>
+            <div className="rounded-md bg-slate-50 p-3"><div className="text-xs text-slate-500">First order commission</div><div className="mt-1 font-semibold text-slate-950">{program.firstOrderCommissionPercent}%</div></div>
+            <div className="rounded-md bg-slate-50 p-3"><div className="text-xs text-slate-500">Repeat commission</div><div className="mt-1 font-semibold text-slate-950">{program.repeatCommissionPercent}%</div></div>
+            <div className="rounded-md bg-slate-50 p-3"><div className="text-xs text-slate-500">Attribution window</div><div className="mt-1 font-semibold text-slate-950">{program.attributionDays} days</div></div>
           </div>
+          <p className="mt-3 text-xs text-slate-500">Planned: social handles, contact overrides, partial payouts, payout voids, and affiliate credit tracking.</p>
         </CardContent>
       </Card>
 
@@ -724,7 +846,7 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
           <div className="space-y-3 md:hidden">
             {directoryAffiliates.map((affiliate) => {
               const expanded = expandedId === affiliate.id;
-              const busy = busyKey?.endsWith(`:${affiliate.id}`) ?? false;
+              const busy = (busyKey?.endsWith(`:${affiliate.id}`) ?? false) || (busyKey?.startsWith("payout:") ?? false);
               return (
                 <div key={affiliate.id} className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
                   <button type="button" className="flex w-full items-start justify-between gap-3 text-left" onClick={() => toggleDetails(affiliate.id)} aria-expanded={expanded}>
@@ -733,6 +855,8 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
                       <div className="mt-1 flex flex-wrap items-center gap-2">
                         <span className="font-mono text-xs font-semibold text-blue-700">{affiliate.code}</span>
                         <Badge tone={statusTone(affiliate.status)}>{statusLabel(affiliate.status)}</Badge>
+                        <Badge tone={affiliate.source === "website" ? "blue" : "slate"}>{affiliate.source === "website" ? "Website" : "Staff"}</Badge>
+                        <Badge tone="slate">{affiliateTypeLabel(affiliate.affiliateType)}</Badge>
                       </div>
                     </div>
                     {expanded ? <ChevronUp size={18} className="shrink-0 text-slate-500" /> : <ChevronDown size={18} className="shrink-0 text-slate-500" />}
@@ -744,7 +868,7 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
                   <div className="mt-3">{directoryActions(affiliate, true)}</div>
                   {expanded ? (
                     <div className="mt-3">
-                      <AffiliateDetails affiliate={affiliate} detail={details[affiliate.id]} loading={detailLoadingId === affiliate.id} copied={copiedId === affiliate.id} busy={busy} onCopy={() => copyCode(affiliate)} onEdit={() => editAffiliate(affiliate)} onPayout={() => recordPayout(affiliate)} />
+                      <AffiliateDetails affiliate={affiliate} program={program} detail={details[affiliate.id]} loading={detailLoadingId === affiliate.id} copied={copiedId === affiliate.id} busy={busy} onCopy={() => copyCode(affiliate)} onEdit={() => editAffiliate(affiliate)} onPayPayout={(payout, reference) => recordPayout(affiliate, payout, reference)} />
                     </div>
                   ) : null}
                 </div>
@@ -752,10 +876,10 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
             })}
           </div>
 
-          <DataTable className="hidden md:block" columns={["Affiliate", "Code", "Status", "Sales", "Orders", "Rate", "Payout due", "Actions"]}>
+          <DataTable className="hidden md:block" columns={["Affiliate", "Code", "Status", "Sales", "Orders", "Source / type", "Payout due", "Actions"]}>
             {directoryAffiliates.map((affiliate) => {
               const expanded = expandedId === affiliate.id;
-              const busy = busyKey?.endsWith(`:${affiliate.id}`) ?? false;
+              const busy = (busyKey?.endsWith(`:${affiliate.id}`) ?? false) || (busyKey?.startsWith("payout:") ?? false);
               return (
                 <Fragment key={affiliate.id}>
                   <tr>
@@ -774,14 +898,14 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates }: { affilia
                     <Td><Badge tone={statusTone(affiliate.status)}>{statusLabel(affiliate.status)}</Badge></Td>
                     <Td>{formatCurrencyOrNA(affiliate.revenueGeneratedCents)}</Td>
                     <Td>{formatNumberOrNA(affiliate.referredOrders)}</Td>
-                    <Td>{formatPercentOrNA(affiliate.payoutRatePercent)}</Td>
+                    <Td><div className="text-xs font-medium text-slate-900">{affiliate.source === "website" ? "Website" : "Staff"}</div><div className="text-xs text-slate-500">{affiliateTypeLabel(affiliate.affiliateType)}</div></Td>
                     <Td className="font-medium text-slate-950">{formatCurrencyOrNA(affiliate.payoutDueCents)}</Td>
                     <Td>{directoryActions(affiliate)}</Td>
                   </tr>
                   {expanded ? (
                     <tr className="bg-white hover:bg-white">
                       <Td colSpan={8} className="p-3">
-                        <AffiliateDetails affiliate={affiliate} detail={details[affiliate.id]} loading={detailLoadingId === affiliate.id} copied={copiedId === affiliate.id} busy={busy} onCopy={() => copyCode(affiliate)} onEdit={() => editAffiliate(affiliate)} onPayout={() => recordPayout(affiliate)} />
+                        <AffiliateDetails affiliate={affiliate} program={program} detail={details[affiliate.id]} loading={detailLoadingId === affiliate.id} copied={copiedId === affiliate.id} busy={busy} onCopy={() => copyCode(affiliate)} onEdit={() => editAffiliate(affiliate)} onPayPayout={(payout, reference) => recordPayout(affiliate, payout, reference)} />
                       </Td>
                     </tr>
                   ) : null}

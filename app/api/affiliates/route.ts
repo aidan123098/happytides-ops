@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import {
-  affiliatePayoutDueCents,
   archiveAffiliateCode,
+  canonicalAffiliateStatus,
   canChangeAffiliateRate,
   canTransitionAffiliateStatus
 } from "@/lib/affiliate-rules";
@@ -39,6 +39,21 @@ async function domainAffiliate(id: string) {
   return getAffiliateById(id);
 }
 
+async function isWebsiteAffiliate(tx: Prisma.TransactionClient, affiliateId: string) {
+  const rows = await tx.$queryRaw<Array<{ linked: boolean }>>`
+    SELECT EXISTS (
+      SELECT 1 FROM storefront.affiliate_accounts WHERE affiliate_id = ${affiliateId}
+    ) AS linked
+  `;
+  return rows[0]?.linked ?? false;
+}
+
+async function reviewWebsiteAffiliate(tx: Prisma.TransactionClient, affiliateId: string, action: "approved" | "disabled" | "rejected", notes?: string) {
+  await tx.$queryRaw`
+    SELECT public.review_storefront_affiliate(${affiliateId}, ${action}, ${notes ?? null})
+  `;
+}
+
 export async function GET(request: Request) {
   await requirePermission("reports:read");
   const url = new URL(request.url);
@@ -72,6 +87,7 @@ export async function POST(request: Request) {
         data: {
           name: payload.name.trim(),
           code: payload.code,
+          affiliateType: payload.affiliateType,
           status: "pending",
           revenueGeneratedCents: 0,
           payoutRateBps,
@@ -95,7 +111,7 @@ export async function POST(request: Request) {
       const affiliate = createOfflineAffiliate({
         name: payload.name,
         code: payload.code,
-        affiliateType: "online",
+        affiliateType: payload.affiliateType,
         status: "pending",
         revenueGeneratedCents: payload.revenueGeneratedCents,
         payoutRatePercent,
@@ -115,47 +131,6 @@ export async function PATCH(request: Request) {
   const actor = await requirePermission("settings:manage");
   const body = await request.json();
 
-  if (body.action === "mark-paid-full") {
-    const affiliateId = typeof body.affiliateId === "string" ? body.affiliateId : "";
-    if (!affiliateId) return NextResponse.json({ error: "affiliateId is required" }, { status: 400 });
-
-    try {
-      const updated = await prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT 1::int AS "lockAcquired" FROM pg_advisory_xact_lock(hashtext(${affiliateId}))`;
-        const before = await tx.affiliate.findUnique({ where: { id: affiliateId } });
-        if (!before || before.archivedAt) throw new AffiliateRouteError("Affiliate not found", 404);
-        if (before.payoutDueCents <= 0) throw new AffiliateRouteError("This affiliate has no payout due.", 409);
-
-        const amountCents = before.payoutDueCents;
-        const paidAt = new Date();
-        const after = await tx.affiliate.update({
-          where: { id: affiliateId },
-          data: {
-            totalPayoutCents: { increment: amountCents },
-            payoutDueCents: 0,
-            lastPayoutAt: paidAt
-          }
-        });
-        await writeAuditLog({
-          actor,
-          entityType: "AFFILIATE",
-          entityId: affiliateId,
-          action: "AFFILIATE_PAYOUT_PAID",
-          before,
-          after,
-          metadata: { amountCents, paidAt: paidAt.toISOString() },
-          request
-        }, tx);
-        return after;
-      });
-
-      invalidateOperationalDataCache();
-      return NextResponse.json({ affiliate: await domainAffiliate(updated.id) });
-    } catch (error) {
-      return routeError(error);
-    }
-  }
-
   const parsed = affiliateUpdateSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
 
@@ -164,7 +139,8 @@ export async function PATCH(request: Request) {
     const updated = await prisma.$transaction(async (tx) => {
       const before = await tx.affiliate.findUnique({ where: { id: payload.affiliateId } });
       if (!before || before.archivedAt) throw new AffiliateRouteError("Affiliate not found", 404);
-      if (payload.status && !canTransitionAffiliateStatus(before.status, payload.status)) {
+      const currentStatus = canonicalAffiliateStatus(before.status, before.archivedAt);
+      if (payload.status && !canTransitionAffiliateStatus(currentStatus, payload.status)) {
         throw new AffiliateRouteError(`Affiliate status cannot change from ${before.status} to ${payload.status}.`, 409);
       }
 
@@ -173,16 +149,18 @@ export async function PATCH(request: Request) {
         throw new AffiliateRouteError("Commission rate is locked after an affiliate has attributed orders.", 409);
       }
 
-      const after = await tx.affiliate.update({
+      const websiteAffiliate = await isWebsiteAffiliate(tx, payload.affiliateId);
+      await tx.affiliate.update({
         where: { id: payload.affiliateId },
         data: {
-          name: payload.name?.trim() ?? before.name,
+          name: websiteAffiliate ? before.name : payload.name?.trim() ?? before.name,
           code: payload.code ?? before.code,
-          status: payload.status ?? before.status,
+          affiliateType: websiteAffiliate ? "online" : payload.affiliateType ?? before.affiliateType,
+          status: websiteAffiliate ? before.status : payload.status ?? before.status,
           revenueGeneratedCents: before.revenueGeneratedCents,
           payoutRateBps,
           totalPayoutCents: before.totalPayoutCents,
-          payoutDueCents: affiliatePayoutDueCents(before.revenueGeneratedCents, payoutRateBps, before.totalPayoutCents),
+          payoutDueCents: before.payoutDueCents,
           referredCustomers: before.referredCustomers,
           referredOrders: before.referredOrders,
           lastPayoutAt: before.lastPayoutAt,
@@ -190,11 +168,23 @@ export async function PATCH(request: Request) {
         }
       });
 
-      const action = before.status === "pending" && after.status === "active"
+      if (websiteAffiliate && payload.status) {
+        await reviewWebsiteAffiliate(
+          tx,
+          payload.affiliateId,
+          payload.status === "paused" ? "disabled" : "approved",
+          payload.notes
+        );
+      }
+
+      const after = await tx.affiliate.findUniqueOrThrow({ where: { id: payload.affiliateId } });
+      const afterStatus = canonicalAffiliateStatus(after.status, after.archivedAt);
+
+      const action = currentStatus === "pending" && afterStatus === "active"
         ? "AFFILIATE_APPROVED"
-        : after.status === "paused"
+        : afterStatus === "paused"
           ? "AFFILIATE_PAUSED"
-          : before.status === "paused" && after.status === "active"
+          : currentStatus === "paused" && afterStatus === "active"
             ? "AFFILIATE_RESUMED"
             : "AFFILIATE_UPDATED";
       await writeAuditLog({ actor, entityType: "AFFILIATE", entityId: after.id, action, before, after, request }, tx);
@@ -208,6 +198,7 @@ export async function PATCH(request: Request) {
       const updated = updateOfflineAffiliate(payload.affiliateId, {
         name: payload.name,
         code: payload.code,
+        affiliateType: payload.affiliateType,
         status: payload.status,
         revenueGeneratedCents: payload.revenueGeneratedCents,
         payoutRatePercent: payload.payoutRatePercent,
@@ -239,16 +230,24 @@ export async function DELETE(request: Request) {
     await prisma.$transaction(async (tx) => {
       const before = await tx.affiliate.findUnique({ where: { id: affiliateId } });
       if (!before || before.archivedAt) throw new AffiliateRouteError("Affiliate not found", 404);
-      if (before.status !== "pending") throw new AffiliateRouteError("Only pending applications can be declined.", 409);
+      if (canonicalAffiliateStatus(before.status, before.archivedAt) !== "pending") {
+        throw new AffiliateRouteError("Only pending applications can be declined.", 409);
+      }
 
-      const after = await tx.affiliate.update({
-        where: { id: affiliateId },
-        data: {
-          code: archiveAffiliateCode(before.code || "DECLINED", affiliateId),
-          archivedAt: new Date(),
-          status: "archived"
-        }
-      });
+      const websiteAffiliate = await isWebsiteAffiliate(tx, affiliateId);
+      if (websiteAffiliate) {
+        await reviewWebsiteAffiliate(tx, affiliateId, "rejected", reason);
+      } else {
+        await tx.affiliate.update({
+          where: { id: affiliateId },
+          data: {
+            code: archiveAffiliateCode(before.code || "DECLINED", affiliateId),
+            archivedAt: new Date(),
+            status: "archived"
+          }
+        });
+      }
+      const after = await tx.affiliate.findUniqueOrThrow({ where: { id: affiliateId } });
       await writeAuditLog({
         actor,
         entityType: "AFFILIATE",

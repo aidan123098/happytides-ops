@@ -969,6 +969,7 @@ model Affiliate {
   id                    String    @id @default(cuid())
   name                  String?
   code                  String?   @unique
+  affiliateType         String    @default("online") @map("affiliate_type")
   status                String    @default("pending")
   revenueGeneratedCents Int       @default(0) @map("revenue_generated_cents")
   payoutRateBps         Int       @default(0) @map("payout_rate_bps")
