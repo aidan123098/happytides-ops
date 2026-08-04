@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidAffiliateCode, normalizeAffiliateCode } from "@/lib/affiliate-rules";
 import { normalizeShopifyOrderId } from "@/lib/shopify-order";
 import { paymentRecipients } from "@/lib/payment-recipients";
 
@@ -63,9 +64,9 @@ export const customerUpdateSchema = customerInputSchema.partial().extend({
 
 export const affiliateInputSchema = z.object({
   name: z.string().min(1),
-  code: z.string().min(1),
+  code: z.string().transform(normalizeAffiliateCode).refine(isValidAffiliateCode, "Use 3-32 letters, numbers, underscores, or hyphens."),
   affiliateType: z.enum(["online", "wholesale", "influencer"]).default("online"),
-  status: z.enum(["active", "paused", "pending"]).default("active"),
+  status: z.enum(["active", "paused", "pending"]).default("pending"),
   revenueGeneratedCents: z.number().int().nonnegative().default(0),
   payoutRatePercent: z.number().min(0).max(100).default(20),
   totalPayoutCents: z.number().int().nonnegative().default(0),

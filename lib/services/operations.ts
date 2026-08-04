@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { FulfillmentStatus, InventoryMovementType, InventoryStatus, OrderDeliveryMethod, PaymentMethod, PaymentStatus, CustomerSource, CustomerStatus, OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { affiliatePayoutDueCents, affiliateRevenueBasisCents, canAssignAffiliate } from "@/lib/affiliate-rules";
 import { writeAuditLog } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { transitionInventoryCounts } from "@/lib/inventory-counts";
@@ -322,7 +323,7 @@ async function recalculateAffiliateMetrics(tx: Tx, affiliateId?: string | null) 
     tx.order.aggregate({
       where,
       _count: { _all: true },
-      _sum: { totalCents: true }
+      _sum: { subtotalCents: true, discountCents: true }
     }),
     tx.order.findMany({
       where,
@@ -330,10 +331,9 @@ async function recalculateAffiliateMetrics(tx: Tx, affiliateId?: string | null) 
       select: { customerId: true }
     })
   ]);
-  const revenueGeneratedCents = orderStats._sum.totalCents ?? 0;
+  const revenueGeneratedCents = affiliateRevenueBasisCents(orderStats._sum.subtotalCents ?? 0, orderStats._sum.discountCents ?? 0);
   const referredCustomers = referredCustomerRows.length;
-  const earned = Math.round((revenueGeneratedCents * affiliate.payoutRateBps) / 10000);
-  const payoutDueCents = Math.max(earned - affiliate.totalPayoutCents, 0);
+  const payoutDueCents = affiliatePayoutDueCents(revenueGeneratedCents, affiliate.payoutRateBps, affiliate.totalPayoutCents);
 
   await tx.affiliate.update({
     where: { id: affiliateId },
@@ -353,7 +353,7 @@ export async function createOrder(payload: OrderPayload, actor: SessionUser, req
       payload.affiliateId ? tx.affiliate.findUnique({ where: { id: payload.affiliateId } }) : Promise.resolve(null)
     ]);
     if (!customer) throw new Error("Customer not found.");
-    if (payload.affiliateId && !affiliate) throw new Error("Affiliate not found.");
+    if (payload.affiliateId && !canAssignAffiliate(affiliate)) throw new Error("Only active affiliates can be assigned to new orders.");
 
     await validateInventory(tx, payload.items);
 
@@ -427,6 +427,11 @@ export async function updateOrder(orderId: string, payload: OrderPayload, actor:
       include: { items: true, payments: true }
     });
     if (!existing || existing.archivedAt) throw new Error("Order not found.");
+
+    if (payload.affiliateId && payload.affiliateId !== existing.affiliateId) {
+      const affiliate = await tx.affiliate.findUnique({ where: { id: payload.affiliateId } });
+      if (!canAssignAffiliate(affiliate)) throw new Error("Only active affiliates can be assigned to orders.");
+    }
 
     if (shippingAddressChanged(existing, payload)) {
       const activeLabel = await tx.shippingShipment.findFirst({ where: { orderId, activeKey: { not: null } }, select: { id: true } });

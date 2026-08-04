@@ -11,8 +11,9 @@ import {
   type Prisma
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { affiliateRevenueBasisCents, displayAffiliateCode } from "@/lib/affiliate-rules";
 import { orderStageFromPersistence } from "@/lib/order-stage";
-import type { Affiliate, Customer, InventoryBatch, InventoryMovement, Order, Product } from "@/types/domain";
+import type { Affiliate, AffiliateDetail, Customer, InventoryBatch, InventoryMovement, Order, Product } from "@/types/domain";
 
 export type OperationalStore = {
   affiliates: Affiliate[];
@@ -262,9 +263,9 @@ function affiliateToDomain(affiliate: PrismaAffiliate): Affiliate {
   return {
     id: affiliate.id,
     name: affiliate.name ?? "N/A",
-    code: affiliate.code ?? "N/A",
+    code: displayAffiliateCode(affiliate.code),
     affiliateType: "online",
-    status: affiliate.status === "archived" ? "N/A" : (affiliate.status as Affiliate["status"]),
+    status: affiliate.archivedAt || affiliate.status === "archived" ? "declined" : (affiliate.status as Affiliate["status"]),
     revenueGeneratedCents: affiliate.revenueGeneratedCents,
     payoutRatePercent: affiliate.payoutRateBps / 100,
     totalPayoutCents: affiliate.totalPayoutCents,
@@ -466,10 +467,11 @@ export async function getCustomerById(id: string) {
   return customer && !customer.archivedAt ? customerToDomain(customer) : undefined;
 }
 
-export async function getAffiliates() {
-  return cachedRead("affiliates", async () => {
+export async function getAffiliates(options: { includeArchived?: boolean } = {}) {
+  const includeArchived = options.includeArchived ?? false;
+  return cachedRead(includeArchived ? "affiliates:all" : "affiliates", async () => {
     const affiliates = await prisma.affiliate.findMany({
-      where: { archivedAt: null },
+      where: includeArchived ? undefined : { archivedAt: null },
       orderBy: { updatedAt: "desc" }
     });
 
@@ -481,6 +483,68 @@ export async function getAffiliateById(id: string) {
   const affiliate = await prisma.affiliate.findUnique({ where: { id } });
 
   return affiliate && !affiliate.archivedAt ? affiliateToDomain(affiliate) : undefined;
+}
+
+export async function getAffiliateDetail(id: string): Promise<AffiliateDetail | undefined> {
+  const affiliate = await prisma.affiliate.findUnique({ where: { id }, select: { id: true } });
+  if (!affiliate) return undefined;
+
+  const [orders, activity] = await Promise.all([
+    prisma.order.findMany({
+      where: { affiliateId: id, archivedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        orderNumber: true,
+        subtotalCents: true,
+        discountCents: true,
+        fulfillmentStatus: true,
+        paymentStatus: true,
+        status: true,
+        createdAt: true,
+        customer: { select: { firstName: true, lastName: true } }
+      }
+    }),
+    prisma.auditLog.findMany({
+      where: { entityType: "AFFILIATE", entityId: id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        action: true,
+        metadata: true,
+        createdAt: true,
+        actor: { select: { name: true, displayName: true } }
+      }
+    })
+  ]);
+
+  return {
+    orders: orders.map((order) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerName: `${order.customer.firstName} ${order.customer.lastName}`.trim(),
+      status: orderStageFromPersistence(order),
+      productNetCents: affiliateRevenueBasisCents(order.subtotalCents, order.discountCents),
+      createdAt: order.createdAt.toISOString()
+    })),
+    activity: activity.map((entry) => {
+      const metadata = entry.metadata && typeof entry.metadata === "object" && !Array.isArray(entry.metadata)
+        ? entry.metadata as Record<string, unknown>
+        : {};
+      const reason = typeof metadata.reason === "string" ? metadata.reason : undefined;
+      const amountCents = typeof metadata.amountCents === "number" ? metadata.amountCents : undefined;
+      return {
+        id: entry.id,
+        action: entry.action,
+        actorName: entry.actor?.displayName || entry.actor?.name || "System",
+        detail: reason || entry.action.toLowerCase().replaceAll("_", " "),
+        amountCents,
+        createdAt: entry.createdAt.toISOString()
+      };
+    })
+  };
 }
 
 export async function getOrders() {

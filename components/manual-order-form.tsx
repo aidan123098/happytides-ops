@@ -88,7 +88,7 @@ export function ManualOrderForm({ products, inventoryBatches, customers: initial
   const router = useRouter();
   const searchParams = useSearchParams();
   const realInitialCustomers = initialCustomers.filter((customer) => customer.id !== "cust_placeholder" && (customer.firstName !== "N/A" || customer.email !== "N/A" || customer.phone !== "N/A"));
-  const realAffiliates = affiliates.filter((affiliate) => affiliate.id !== "aff_placeholder" && affiliate.name !== "N/A" && affiliate.code !== "N/A");
+  const realAffiliates = affiliates.filter((affiliate) => affiliate.id !== "aff_placeholder" && affiliate.name !== "N/A" && affiliate.code !== "N/A" && affiliate.status === "active");
   const [customers, setCustomers] = useState(realInitialCustomers);
   const [liveInventoryBatches, setLiveInventoryBatches] = useState(inventoryBatches);
   const [customerId, setCustomerId] = useState("");

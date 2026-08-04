@@ -1,4 +1,5 @@
 import { affiliates as seedAffiliates, customers as seedCustomers, inventoryBatches as seedInventoryBatches, inventoryMovements as seedInventoryMovements, orders as seedOrders, products as seedProducts } from "@/lib/seed-data";
+import { affiliatePayoutDueCents, affiliateRevenueBasisCents, canAssignAffiliate } from "@/lib/affiliate-rules";
 import type { SessionUser } from "@/lib/auth";
 import type { Affiliate, Customer, InventoryBatch, Order, OrderStage, Product, ShippingAddress } from "@/types/domain";
 import type { OperationalStore } from "@/lib/services/operational-data";
@@ -139,13 +140,13 @@ function recalculateAffiliateStats(affiliateId?: string) {
   if (!affiliate || affiliate.id === "aff_placeholder") return;
 
   const orders = visibleOrders().filter((order) => order.affiliateId === affiliateId && order.paymentStatus === "paid");
-  const revenueGeneratedCents = orders.reduce((sum, order) => sum + order.totalCents, 0);
+  const revenueGeneratedCents = orders.reduce((sum, order) => sum + affiliateRevenueBasisCents(order.subtotalCents, order.discountCents), 0);
   const rate = affiliate.payoutRatePercent ?? 0;
   const totalPayoutCents = affiliate.totalPayoutCents ?? 0;
   affiliate.revenueGeneratedCents = revenueGeneratedCents;
   affiliate.referredOrders = orders.length;
   affiliate.referredCustomers = new Set(orders.map((order) => order.customerId)).size;
-  affiliate.payoutDueCents = Math.max(Math.round((revenueGeneratedCents * rate) / 100) - totalPayoutCents, 0);
+  affiliate.payoutDueCents = affiliatePayoutDueCents(revenueGeneratedCents, Math.round(rate * 100), totalPayoutCents);
 }
 
 function addMovement(batch: InventoryBatch, delta: number, reason: string, actor: SessionUser): InventoryMovement {
@@ -227,6 +228,9 @@ function allocateOrderInventory(order: Order, actor: SessionUser) {
 function buildOrder(payload: OrderPayload, actor: SessionUser, existing?: Order): Order {
   const customer = state.customers.find((item) => item.id === payload.customerId);
   const affiliate = payload.affiliateId ? state.affiliates.find((item) => item.id === payload.affiliateId) : undefined;
+  if (payload.affiliateId && payload.affiliateId !== existing?.affiliateId && !canAssignAffiliate(affiliate)) {
+    throw new Error("Only active affiliates can be assigned to orders.");
+  }
   const subtotalCents = payload.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const discountCents = payload.items.reduce((sum, item) => sum + item.discountCents, 0);
   const shippingCents = payload.deliveryMethod === "ship" ? payload.shippingCents : 0;

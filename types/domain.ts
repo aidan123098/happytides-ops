@@ -196,7 +196,7 @@ export type Affiliate = {
   name: string;
   code: string;
   affiliateType: "online" | "wholesale" | "influencer";
-  status: "N/A" | "active" | "paused" | "pending";
+  status: "N/A" | "active" | "paused" | "pending" | "declined";
   revenueGeneratedCents: number | null;
   payoutRatePercent: number | null;
   totalPayoutCents: number | null;
@@ -205,4 +205,27 @@ export type Affiliate = {
   referredOrders: number | null;
   lastPayoutAt: string;
   notes: string;
+};
+
+export type AffiliateOrderDetail = {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  status: string;
+  productNetCents: number;
+  createdAt: string;
+};
+
+export type AffiliateActivityDetail = {
+  id: string;
+  action: string;
+  actorName: string;
+  detail: string;
+  amountCents?: number;
+  createdAt: string;
+};
+
+export type AffiliateDetail = {
+  orders: AffiliateOrderDetail[];
+  activity: AffiliateActivityDetail[];
 };
