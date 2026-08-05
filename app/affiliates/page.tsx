@@ -20,6 +20,7 @@ export default async function AffiliatesPage() {
         description="Review affiliate codes, manage partner access, and keep referral performance and payouts organized."
         icon={Handshake}
         actions={<AffiliateApplicationTrigger />}
+        showWorkflowPrompt={false}
       />
 
       <AffiliatesWorkbench affiliates={affiliates} program={program} />

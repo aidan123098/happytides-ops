@@ -21,6 +21,7 @@ type PageHeaderProps = {
   actions?: ReactNode;
   kicker?: string;
   stats?: PageHeaderStat[];
+  showWorkflowPrompt?: boolean;
 };
 
 const toneClasses: Record<PageHeaderTone, { icon: string; accent: string }> = {
@@ -54,11 +55,27 @@ const toneClasses: Record<PageHeaderTone, { icon: string; accent: string }> = {
   }
 };
 
-export function PageHeader({ eyebrow, title, description, icon: Icon, actions, kicker = "Live workspace", stats = [] }: PageHeaderProps) {
+export function PageHeader({
+  eyebrow,
+  title,
+  description,
+  icon: Icon,
+  actions,
+  kicker = "Live workspace",
+  stats = [],
+  showWorkflowPrompt = true
+}: PageHeaderProps) {
+  const showSidePanel = stats.length > 0 || showWorkflowPrompt;
+
   return (
     <section className="relative overflow-hidden rounded-lg border border-slate-200 bg-white/90 shadow-panel">
       <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#0f172a_0%,#2563eb_32%,#10b981_68%,#f59e0b_100%)]" />
-      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)] lg:p-6">
+      <div
+        className={cn(
+          "grid gap-5 p-4 sm:p-5 lg:p-6",
+          showSidePanel && "lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)]"
+        )}
+      >
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-700">
@@ -75,33 +92,35 @@ export function PageHeader({ eyebrow, title, description, icon: Icon, actions, k
           {actions ? <div className="mt-5 flex flex-wrap gap-2">{actions}</div> : null}
         </div>
 
-        <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-          {stats.map((stat) => {
-            const tone = toneClasses[stat.tone ?? "slate"];
-            const StatIcon = stat.icon;
-            return (
-              <div key={`${stat.label}-${stat.value}`} className="relative min-h-[104px] overflow-hidden rounded-md border border-slate-200 bg-slate-50/80 p-3">
-                <div className={cn("absolute inset-y-0 left-0 w-1", tone.accent)} />
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-xs font-semibold uppercase text-slate-500">{stat.label}</div>
-                    <div className="mt-1 truncate text-xl font-semibold text-slate-950">{stat.value}</div>
-                    <div className="mt-1 max-h-10 overflow-hidden text-xs leading-5 text-slate-500">{stat.detail}</div>
+        {showSidePanel ? (
+          <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            {stats.map((stat) => {
+              const tone = toneClasses[stat.tone ?? "slate"];
+              const StatIcon = stat.icon;
+              return (
+                <div key={`${stat.label}-${stat.value}`} className="relative min-h-[104px] overflow-hidden rounded-md border border-slate-200 bg-slate-50/80 p-3">
+                  <div className={cn("absolute inset-y-0 left-0 w-1", tone.accent)} />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold uppercase text-slate-500">{stat.label}</div>
+                      <div className="mt-1 truncate text-xl font-semibold text-slate-950">{stat.value}</div>
+                      <div className="mt-1 max-h-10 overflow-hidden text-xs leading-5 text-slate-500">{stat.detail}</div>
+                    </div>
+                    <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md ring-1", tone.icon)}>
+                      <StatIcon size={16} />
+                    </span>
                   </div>
-                  <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md ring-1", tone.icon)}>
-                    <StatIcon size={16} />
-                  </span>
                 </div>
+              );
+            })}
+            {stats.length === 0 && showWorkflowPrompt ? (
+              <div className="flex min-h-[104px] items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50/80 p-3 text-sm font-semibold text-slate-700">
+                <span>Open a workflow</span>
+                <ArrowRight size={16} />
               </div>
-            );
-          })}
-          {stats.length === 0 ? (
-            <div className="flex min-h-[104px] items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50/80 p-3 text-sm font-semibold text-slate-700">
-              <span>Open a workflow</span>
-              <ArrowRight size={16} />
-            </div>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </section>
   );
