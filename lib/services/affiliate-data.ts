@@ -116,7 +116,8 @@ async function affiliateRows(includeArchived: boolean) {
     LEFT JOIN storefront.affiliate_accounts aa ON aa.affiliate_id = a.id
     LEFT JOIN storefront.customer_accounts ca ON ca.user_id = aa.user_id
     LEFT JOIN public.customers c ON c.id = ca.customer_id AND c.archived_at IS NULL
-    WHERE (${includeArchived}::boolean OR a.archived_at IS NULL)
+    WHERE lower(a.status) <> 'deleted'
+      AND (${includeArchived}::boolean OR a.archived_at IS NULL)
     ORDER BY a.updated_at DESC
   `;
 }
@@ -160,7 +161,10 @@ function commissionItems(value: unknown): AffiliateCommissionDetail[] {
 }
 
 export async function loadAffiliateDetail(id: string): Promise<AffiliateDetail | undefined> {
-  const affiliate = await prisma.affiliate.findUnique({ where: { id }, select: { id: true } });
+  const affiliate = await prisma.affiliate.findFirst({
+    where: { id, NOT: { status: { equals: "deleted", mode: "insensitive" } } },
+    select: { id: true }
+  });
   if (!affiliate) return undefined;
 
   const [orders, activity, commissionResult, payouts] = await Promise.all([

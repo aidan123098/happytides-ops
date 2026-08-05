@@ -14,6 +14,7 @@ import {
   Plus,
   Save,
   Search,
+  Trash2,
   UserCheck,
   Users,
   WalletCards,
@@ -188,6 +189,7 @@ function AffiliateDetails({
   busy,
   onCopy,
   onEdit,
+  onDelete,
   onPayPayout
 }: {
   affiliate: Affiliate;
@@ -198,6 +200,7 @@ function AffiliateDetails({
   busy: boolean;
   onCopy: () => void;
   onEdit: () => void;
+  onDelete: () => void;
   onPayPayout: (payout: AffiliatePayoutDetail, externalReference: string) => Promise<void>;
 }) {
   return (
@@ -350,14 +353,18 @@ function AffiliateDetails({
         </div>
       ) : null}
 
-      {affiliate.status !== "declined" ? (
-        <div className="flex">
+      <div className={`grid gap-2 sm:flex ${affiliate.status === "declined" ? "grid-cols-1" : "grid-cols-2"}`}>
+        {affiliate.status !== "declined" ? (
           <Button type="button" variant="secondary" className="w-full sm:w-auto" onClick={onEdit} disabled={busy}>
             <Edit3 size={15} />
             Edit partner
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+        <Button type="button" variant="ghost" className="w-full text-red-600 hover:text-red-700 sm:w-auto" onClick={onDelete} disabled={busy}>
+          <Trash2 size={15} />
+          Delete partner
+        </Button>
+      </div>
     </div>
   );
 }
@@ -558,6 +565,41 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates, program }: 
     }
   }
 
+  async function deleteAffiliate(affiliate: Affiliate) {
+    const confirmed = window.confirm(
+      `Delete ${affiliate.name} (${affiliate.code})? The code will be released and historical orders and payments will stay intact.`
+    );
+    if (!confirmed) return;
+
+    const key = `delete:${affiliate.id}`;
+    setBusyKey(key);
+    setError("");
+    try {
+      const response = await fetch(`/api/affiliates?affiliateId=${encodeURIComponent(affiliate.id)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete" })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not delete affiliate");
+
+      setAffiliates((current) => current.filter((item) => item.id !== affiliate.id));
+      setDetails((current) => {
+        const next = { ...current };
+        delete next[affiliate.id];
+        return next;
+      });
+      setExpandedId((current) => current === affiliate.id ? null : current);
+      setDecliningId((current) => current === affiliate.id ? null : current);
+      setDeclineReason("");
+      if (editingId === affiliate.id) resetForm();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not delete affiliate");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function preparePayouts() {
     setIsPreparingPayouts(true);
     setError("");
@@ -613,10 +655,16 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates, program }: 
     const busy = busyKey?.endsWith(`:${affiliate.id}`) ?? false;
     if (affiliate.status === "declined") {
       return (
-        <Button type="button" variant="secondary" className={compact ? "h-8 w-full px-2 col-span-2" : "h-8 px-2"} onClick={() => copyCode(affiliate)} title="Copy released affiliate code">
-          {copiedId === affiliate.id ? <Check size={14} /> : <Clipboard size={14} />}
-          {compact ? "Copy released code" : null}
-        </Button>
+        <div className={compact ? "grid grid-cols-2 gap-2" : "flex flex-wrap gap-2"}>
+          <Button type="button" variant="secondary" className={compact ? "h-8 w-full px-2" : "h-8 px-2"} onClick={() => copyCode(affiliate)} title="Copy released affiliate code">
+            {copiedId === affiliate.id ? <Check size={14} /> : <Clipboard size={14} />}
+            {compact ? "Copy code" : null}
+          </Button>
+          <Button type="button" variant="ghost" className={compact ? "h-8 w-full px-2 text-red-600 hover:text-red-700" : "h-8 px-2 text-red-600 hover:text-red-700"} onClick={() => deleteAffiliate(affiliate)} disabled={busy} title="Delete affiliate">
+            <Trash2 size={14} />
+            {compact ? "Delete" : null}
+          </Button>
+        </div>
       );
     }
     return (
@@ -636,6 +684,10 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates, program }: 
             {compact ? "Resume" : null}
           </Button>
         )}
+        <Button type="button" variant="ghost" className={compact ? "col-span-2 h-8 w-full px-2 text-red-600 hover:text-red-700" : "h-8 px-2 text-red-600 hover:text-red-700"} onClick={() => deleteAffiliate(affiliate)} disabled={busy} title="Delete affiliate">
+          <Trash2 size={14} />
+          {compact ? "Delete" : null}
+        </Button>
       </div>
     );
   }
@@ -705,7 +757,7 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates, program }: 
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-4 grid grid-cols-3 gap-2">
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <Button type="button" className="h-9 w-full px-2" onClick={() => updateStatus(affiliate, "active", "approve")} disabled={busy}>
                           <Check size={15} />
                           Approve
@@ -717,6 +769,10 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates, program }: 
                         <Button type="button" variant="ghost" className="h-9 w-full px-2 text-red-600 hover:text-red-700" onClick={() => { setDecliningId(affiliate.id); setDeclineReason(""); setError(""); }} disabled={busy}>
                           <X size={15} />
                           Decline
+                        </Button>
+                        <Button type="button" variant="ghost" className="h-9 w-full px-2 text-red-600 hover:text-red-700" onClick={() => deleteAffiliate(affiliate)} disabled={busy}>
+                          <Trash2 size={15} />
+                          Delete
                         </Button>
                       </div>
                     )}
@@ -868,7 +924,7 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates, program }: 
                   <div className="mt-3">{directoryActions(affiliate, true)}</div>
                   {expanded ? (
                     <div className="mt-3">
-                      <AffiliateDetails affiliate={affiliate} program={program} detail={details[affiliate.id]} loading={detailLoadingId === affiliate.id} copied={copiedId === affiliate.id} busy={busy} onCopy={() => copyCode(affiliate)} onEdit={() => editAffiliate(affiliate)} onPayPayout={(payout, reference) => recordPayout(affiliate, payout, reference)} />
+                      <AffiliateDetails affiliate={affiliate} program={program} detail={details[affiliate.id]} loading={detailLoadingId === affiliate.id} copied={copiedId === affiliate.id} busy={busy} onCopy={() => copyCode(affiliate)} onEdit={() => editAffiliate(affiliate)} onDelete={() => deleteAffiliate(affiliate)} onPayPayout={(payout, reference) => recordPayout(affiliate, payout, reference)} />
                     </div>
                   ) : null}
                 </div>
@@ -905,7 +961,7 @@ export function AffiliatesWorkbench({ affiliates: initialAffiliates, program }: 
                   {expanded ? (
                     <tr className="bg-white hover:bg-white">
                       <Td colSpan={8} className="p-3">
-                        <AffiliateDetails affiliate={affiliate} program={program} detail={details[affiliate.id]} loading={detailLoadingId === affiliate.id} copied={copiedId === affiliate.id} busy={busy} onCopy={() => copyCode(affiliate)} onEdit={() => editAffiliate(affiliate)} onPayPayout={(payout, reference) => recordPayout(affiliate, payout, reference)} />
+                        <AffiliateDetails affiliate={affiliate} program={program} detail={details[affiliate.id]} loading={detailLoadingId === affiliate.id} copied={copiedId === affiliate.id} busy={busy} onCopy={() => copyCode(affiliate)} onEdit={() => editAffiliate(affiliate)} onDelete={() => deleteAffiliate(affiliate)} onPayPayout={(payout, reference) => recordPayout(affiliate, payout, reference)} />
                       </Td>
                     </tr>
                   ) : null}

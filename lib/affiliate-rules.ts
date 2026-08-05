@@ -10,7 +10,7 @@ export function isValidAffiliateCode(value: string) {
 }
 
 export function archiveAffiliateCode(code: string, affiliateId: string) {
-  return `${code}${archivedCodeMarker}${affiliateId}`;
+  return `${displayAffiliateCode(code)}${archivedCodeMarker}${affiliateId}`;
 }
 
 export function displayAffiliateCode(code: string | null | undefined) {
@@ -31,12 +31,22 @@ export function canAssignAffiliate(affiliate: { status: string; archivedAt?: Dat
   return Boolean(affiliate && !affiliate.archivedAt && ["active", "approved"].includes(affiliate.status.toLowerCase()));
 }
 
+export function canDeleteAffiliateRecord(status: string) {
+  return ["pending", "active", "approved", "paused", "disabled", "declined", "rejected", "archived"].includes(status.toLowerCase());
+}
+
+export function affiliateDeletionBlockReason(hasUnpaidCommissions: boolean, hasOpenPayout: boolean) {
+  return hasUnpaidCommissions || hasOpenPayout
+    ? "Settle this affiliate's unpaid commissions and open payouts before deleting it."
+    : undefined;
+}
+
 export function canonicalAffiliateStatus(status: string, archivedAt?: Date | string | null) {
   if (archivedAt) return "declined" as const;
   const normalized = status.toLowerCase();
   if (normalized === "active" || normalized === "approved") return "active" as const;
   if (normalized === "paused" || normalized === "disabled") return "paused" as const;
-  if (normalized === "declined" || normalized === "rejected" || normalized === "archived") return "declined" as const;
+  if (normalized === "declined" || normalized === "rejected" || normalized === "archived" || normalized === "deleted") return "declined" as const;
   return "pending" as const;
 }
 

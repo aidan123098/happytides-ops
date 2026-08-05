@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import {
   archiveAffiliateCode,
+  affiliateDeletionBlockReason,
+  canDeleteAffiliateRecord,
   canonicalAffiliateStatus,
   canChangeAffiliateRate,
   canTransitionAffiliateStatus
@@ -52,6 +54,29 @@ async function reviewWebsiteAffiliate(tx: Prisma.TransactionClient, affiliateId:
   await tx.$queryRaw`
     SELECT public.review_storefront_affiliate(${affiliateId}, ${action}, ${notes ?? null})
   `;
+}
+
+async function affiliateDeletionBlock(tx: Prisma.TransactionClient, affiliateId: string) {
+  const rows = await tx.$queryRaw<Array<{ hasUnpaidCommissions: boolean; hasOpenPayout: boolean }>>`
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM storefront.affiliate_commissions c
+        WHERE c.affiliate_id = ${affiliateId}
+          AND c.status IN ('pending', 'approved')
+          AND c.amount_cents - c.reversed_cents > 0
+      ) AS "hasUnpaidCommissions",
+      EXISTS (
+        SELECT 1
+        FROM storefront.affiliate_payouts p
+        WHERE p.affiliate_id = ${affiliateId}
+          AND p.status IN ('draft', 'approved')
+      ) AS "hasOpenPayout"
+  `;
+  return affiliateDeletionBlockReason(
+    rows[0]?.hasUnpaidCommissions ?? false,
+    rows[0]?.hasOpenPayout ?? false
+  );
 }
 
 export async function GET(request: Request) {
@@ -220,42 +245,64 @@ export async function DELETE(request: Request) {
   const actor = await requirePermission("settings:manage");
   const affiliateId = new URL(request.url).searchParams.get("affiliateId");
   const body = await request.json().catch(() => ({}));
+  const action = body.action === undefined ? "decline" : body.action;
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
 
   if (!affiliateId) return NextResponse.json({ error: "affiliateId is required" }, { status: 400 });
-  if (!reason) return NextResponse.json({ error: "A decline reason is required." }, { status: 400 });
-  if (reason.length > 500) return NextResponse.json({ error: "Decline reason must be 500 characters or fewer." }, { status: 400 });
+  if (action !== "decline" && action !== "delete") return NextResponse.json({ error: "Unsupported affiliate action." }, { status: 400 });
+  if (action === "decline" && !reason) return NextResponse.json({ error: "A decline reason is required." }, { status: 400 });
+  if (action === "decline" && reason.length > 500) return NextResponse.json({ error: "Decline reason must be 500 characters or fewer." }, { status: 400 });
 
   try {
     await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT 1::int AS "lockAcquired"
+        FROM pg_advisory_xact_lock(hashtext(${`affiliate-delete:${affiliateId}`}))
+      `;
       const before = await tx.affiliate.findUnique({ where: { id: affiliateId } });
-      if (!before || before.archivedAt) throw new AffiliateRouteError("Affiliate not found", 404);
-      if (canonicalAffiliateStatus(before.status, before.archivedAt) !== "pending") {
-        throw new AffiliateRouteError("Only pending applications can be declined.", 409);
-      }
+      if (!before || before.status.toLowerCase() === "deleted") throw new AffiliateRouteError("Affiliate not found", 404);
 
-      const websiteAffiliate = await isWebsiteAffiliate(tx, affiliateId);
-      if (websiteAffiliate) {
-        await reviewWebsiteAffiliate(tx, affiliateId, "rejected", reason);
-      } else {
+      if (action === "delete") {
+        if (!canDeleteAffiliateRecord(before.status)) throw new AffiliateRouteError("Affiliate not found", 404);
+        const blockReason = await affiliateDeletionBlock(tx, affiliateId);
+        if (blockReason) throw new AffiliateRouteError(blockReason, 409);
+
         await tx.affiliate.update({
           where: { id: affiliateId },
           data: {
-            code: archiveAffiliateCode(before.code || "DECLINED", affiliateId),
+            code: archiveAffiliateCode(before.code || "DELETED", affiliateId),
             archivedAt: new Date(),
-            status: "archived"
+            status: "deleted"
           }
         });
+      } else {
+        if (before.archivedAt || canonicalAffiliateStatus(before.status, before.archivedAt) !== "pending") {
+          throw new AffiliateRouteError("Only pending applications can be declined.", 409);
+        }
+
+        const websiteAffiliate = await isWebsiteAffiliate(tx, affiliateId);
+        if (websiteAffiliate) {
+          await reviewWebsiteAffiliate(tx, affiliateId, "rejected", reason);
+        } else {
+          await tx.affiliate.update({
+            where: { id: affiliateId },
+            data: {
+              code: archiveAffiliateCode(before.code || "DECLINED", affiliateId),
+              archivedAt: new Date(),
+              status: "archived"
+            }
+          });
+        }
       }
       const after = await tx.affiliate.findUniqueOrThrow({ where: { id: affiliateId } });
       await writeAuditLog({
         actor,
         entityType: "AFFILIATE",
         entityId: affiliateId,
-        action: "AFFILIATE_DECLINED",
+        action: action === "delete" ? "AFFILIATE_DELETED" : "AFFILIATE_DECLINED",
         before,
         after,
-        metadata: { reason, originalCode: before.code },
+        metadata: action === "delete" ? { originalCode: before.code } : { reason, originalCode: before.code },
         request
       }, tx);
     });
